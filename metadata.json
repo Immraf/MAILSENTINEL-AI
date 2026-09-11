@@ -1,0 +1,6 @@
+{
+  "name": "MailSentinel AI",
+  "description": "AI-powered multi-account email intelligence, management, and security platform unifying Gmail and Outlook.",
+  "requestFramePermissions": ["notifications"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
