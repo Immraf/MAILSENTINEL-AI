@@ -31,6 +31,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onSendTestNotification,
 }) => {
   const [testSent, setTestSent] = useState(false);
+  const [waConfigured, setWaConfigured] = useState<boolean | null>(null);
+
+  React.useEffect(() => {
+    fetch('/api/accounts/config-status')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.whatsapp) {
+          setWaConfigured(Boolean(data.whatsapp.configured));
+        }
+      })
+      .catch(() => setWaConfigured(false));
+  }, []);
 
   const handleTestNotification = () => {
     onSendTestNotification();
@@ -196,6 +208,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <p className="text-xs text-slate-400">
             Dispatches urgent security and priority alerts directly to your verified phone number using official Meta WhatsApp Cloud templates.
           </p>
+
+          {waConfigured === false && (
+            <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-800/40 text-xs text-amber-200 space-y-1">
+              <div className="flex items-center gap-1.5 font-semibold text-amber-300">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>WhatsApp notifications are not configured.</span>
+              </div>
+              <p className="text-slate-300 text-[11px] leading-relaxed">
+                To activate real outbound WhatsApp dispatching, define the following variables in environment secrets:
+              </p>
+              <ul className="list-disc list-inside font-mono text-[10px] text-cyan-300 space-y-0.5">
+                <li>WHATSAPP_PHONE_NUMBER_ID</li>
+                <li>WHATSAPP_ACCESS_TOKEN</li>
+                <li>WHATSAPP_BUSINESS_ACCOUNT_ID</li>
+              </ul>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs pt-1">
             <div>

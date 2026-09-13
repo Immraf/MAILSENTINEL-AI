@@ -52,6 +52,41 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const [newEmail, setNewEmail] = useState('');
   const [newProvider, setNewProvider] = useState<'gmail' | 'outlook'>('gmail');
   const [newName, setNewName] = useState('');
+  const [configStatus, setConfigStatus] = useState<any>(null);
+  const [isStartingOAuth, setIsStartingOAuth] = useState(false);
+
+  // Fetch OAuth configuration status on mount
+  React.useEffect(() => {
+    fetch('/api/accounts/config-status')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data) setConfigStatus(data);
+      })
+      .catch((err) => console.warn('Could not load OAuth config status:', err));
+  }, []);
+
+  const handleStartOAuth = async () => {
+    setIsStartingOAuth(true);
+    try {
+      const endpoint = newProvider === 'gmail' ? '/api/accounts/gmail/connect' : '/api/accounts/outlook/connect';
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (data.configured && data.authUrl) {
+        window.location.href = data.authUrl;
+      } else {
+        // Not configured in env - keep in demo mode
+        handleConnect();
+      }
+    } catch (err) {
+      console.error('OAuth start error:', err);
+      handleConnect();
+    } finally {
+      setIsStartingOAuth(false);
+    }
+  };
 
   // Simulator state
   const [simAccount, setSimAccount] = useState<string>(accounts[0]?.id || '');
@@ -469,13 +504,54 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 </div>
               </div>
 
+              {/* Provider Config Status Callout */}
+              {newProvider === 'gmail' && configStatus?.gmail && (
+                <div className={`p-3 rounded-lg border text-[11px] ${
+                  configStatus.gmail.configured
+                    ? 'bg-emerald-950/30 border-emerald-800/40 text-emerald-200'
+                    : 'bg-amber-950/30 border-amber-800/40 text-amber-200'
+                }`}>
+                  <div className="flex items-center justify-between font-semibold">
+                    <span>Google OAuth 2.0:</span>
+                    <span className="uppercase text-[10px] px-1.5 py-0.5 rounded bg-slate-900 font-mono">
+                      {configStatus.gmail.configured ? 'Configured (Production)' : 'Demo Mode (Unconfigured)'}
+                    </span>
+                  </div>
+                  {!configStatus.gmail.configured && (
+                    <p className="mt-1 text-slate-300">
+                      GOOGLE_CLIENT_ID &amp; GOOGLE_CLIENT_SECRET are not set in environment. Demo mailboxes are fully supported for security &amp; triage testing.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {newProvider === 'outlook' && configStatus?.outlook && (
+                <div className={`p-3 rounded-lg border text-[11px] ${
+                  configStatus.outlook.configured
+                    ? 'bg-emerald-950/30 border-emerald-800/40 text-emerald-200'
+                    : 'bg-amber-950/30 border-amber-800/40 text-amber-200'
+                }`}>
+                  <div className="flex items-center justify-between font-semibold">
+                    <span>Microsoft Graph OAuth 2.0:</span>
+                    <span className="uppercase text-[10px] px-1.5 py-0.5 rounded bg-slate-900 font-mono">
+                      {configStatus.outlook.configured ? 'Configured (Production)' : 'Demo Mode (Unconfigured)'}
+                    </span>
+                  </div>
+                  {!configStatus.outlook.configured && (
+                    <p className="mt-1 text-slate-300">
+                      MICROSOFT_CLIENT_ID &amp; MICROSOFT_CLIENT_SECRET are not set in environment. Demo mailboxes are fully supported.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="block text-slate-400 mb-1">Email Address</label>
                 <input
                   type="email"
                   value={newEmail}
                   onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder="e.g. user@domain.com"
+                  placeholder={newProvider === 'gmail' ? 'e.g. yourname@gmail.com' : 'e.g. yourname@outlook.com'}
                   className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200"
                 />
               </div>
@@ -494,26 +570,41 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
               <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-400 space-y-1">
                 <span className="font-semibold text-slate-300 block">Requested OAuth Scopes:</span>
                 <span className="font-mono text-cyan-400 block">
-                  {newProvider === 'gmail' ? 'https://www.googleapis.com/auth/gmail.readonly' : 'Mail.Read offline_access'}
+                  {newProvider === 'gmail' ? 'https://www.googleapis.com/auth/gmail.readonly' : 'Mail.Read User.Read offline_access'}
                 </span>
                 <span>Requires no write or delete authority.</span>
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+            <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-800">
               <button
                 onClick={() => setShowConnectModal(false)}
                 className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs font-medium"
               >
                 Cancel
               </button>
-              <button
-                onClick={handleConnect}
-                disabled={!newEmail.trim()}
-                className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium disabled:opacity-40"
-              >
-                Authorize Mailbox
-              </button>
+
+              <div className="flex items-center gap-2">
+                {((newProvider === 'gmail' && configStatus?.gmail?.configured) ||
+                  (newProvider === 'outlook' && configStatus?.outlook?.configured)) && (
+                  <button
+                    onClick={handleStartOAuth}
+                    disabled={isStartingOAuth}
+                    className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5"
+                  >
+                    <Shield className="w-3.5 h-3.5" />
+                    <span>{isStartingOAuth ? 'Redirecting...' : 'OAuth Sign-In'}</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={handleConnect}
+                  disabled={!newEmail.trim()}
+                  className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium disabled:opacity-40"
+                >
+                  Connect Mailbox
+                </button>
+              </div>
             </div>
           </div>
         </div>

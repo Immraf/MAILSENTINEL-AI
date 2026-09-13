@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import DOMPurify from 'dompurify';
 import {
   X,
   Shield,
@@ -326,10 +327,41 @@ export const EmailDetailModal: React.FC<EmailDetailModalProps> = ({
                 )}
               </div>
 
-              {/* Formatted Email Body */}
-              <div className="p-6 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-sm leading-relaxed whitespace-pre-wrap font-sans">
-                {email.bodyText}
-              </div>
+              {/* Security Banner if flagged */}
+              {(isPhishing || isMalicious) && (
+                <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-800/60 flex items-start gap-3 text-xs text-rose-200">
+                  <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <span className="font-bold text-rose-300 uppercase tracking-wide">Threat Protection Shield Active</span>
+                    <p className="text-rose-200/90 leading-relaxed">
+                      MailSentinel intercepted this message due to suspected {email.securityAnalysis.classification.toLowerCase()}. Active scripts, tracking beacons, and interactive links have been quarantined and sanitized to prevent payload execution.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Formatted Sanitized Email Body */}
+              {email.bodyHtml ? (
+                <div
+                  className="p-6 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-sm leading-relaxed font-sans email-content-sanitized prose prose-invert max-w-none"
+                  dangerouslySetInnerHTML={{
+                    __html: DOMPurify.sanitize(email.bodyHtml, {
+                      ALLOWED_TAGS: [
+                        'p', 'br', 'b', 'i', 'em', 'strong', 'a', 'ul', 'ol', 'li', 'blockquote',
+                        'code', 'pre', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'h1', 'h2',
+                        'h3', 'h4', 'span', 'div', 'hr',
+                      ],
+                      ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'title'],
+                      FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'link'],
+                      FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover'],
+                    }),
+                  }}
+                />
+              ) : (
+                <div className="p-6 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-sm leading-relaxed whitespace-pre-wrap font-sans">
+                  {email.bodyText}
+                </div>
+              )}
             </div>
           )}
 
