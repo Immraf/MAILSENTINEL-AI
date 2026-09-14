@@ -88,6 +88,17 @@ export interface ExtractedEntity {
   context?: string;
 }
 
+export interface EventInformation {
+  title: string;
+  summary?: string;
+  description?: string;
+  startTime: string; // ISO 8601 string or valid date string
+  endTime?: string;   // ISO 8601 string or valid date string
+  location?: string;
+  attendees?: string[];
+  isAllDay?: boolean;
+}
+
 export interface AIAnalysis {
   category: EmailCategory;
   priority: PriorityLevel;
@@ -100,6 +111,7 @@ export interface AIAnalysis {
   extractedEntities: ExtractedEntity[];
   whyPriorityReasons: string[];
   confidence: number;
+  eventInformation?: EventInformation | null;
 }
 
 export interface SecurityAnalysis {
@@ -260,6 +272,42 @@ export interface NotificationSettings {
 
 export type NotificationConfig = NotificationSettings;
 
+export function normalizeNotificationConfig(raw?: Partial<NotificationConfig> | null): NotificationConfig {
+  const quietEnabled = raw?.quietHours?.enabled ?? raw?.quietHoursEnabled ?? false;
+  const quietStart = raw?.quietHours?.start || raw?.quietHoursStart || '22:00';
+  const quietEnd = raw?.quietHours?.end || raw?.quietHoursEnd || '07:00';
+  const allowCritical = raw?.quietHours?.allowCriticalSecurity ?? true;
+
+  return {
+    pushEnabled: raw?.pushEnabled ?? true,
+    whatsappEnabled: raw?.whatsappEnabled ?? false,
+    whatsappPhone: raw?.whatsappPhone || raw?.whatsappNumber || '',
+    whatsappNumber: raw?.whatsappNumber || raw?.whatsappPhone || '',
+    webPushEnabled: raw?.webPushEnabled ?? true,
+    dailyDigestEnabled: raw?.dailyDigestEnabled ?? true,
+    dailyDigestTime: raw?.dailyDigestTime || '08:00',
+    quietHoursEnabled: quietEnabled,
+    quietHoursStart: quietStart,
+    quietHoursEnd: quietEnd,
+    quietHours: {
+      enabled: quietEnabled,
+      start: quietStart,
+      end: quietEnd,
+      allowCriticalSecurity: allowCritical,
+    },
+    triggers: {
+      critical: raw?.triggers?.critical ?? true,
+      high: raw?.triggers?.high ?? true,
+      threats: raw?.triggers?.threats ?? true,
+      deadlines: raw?.triggers?.deadlines ?? true,
+      quarantine: raw?.triggers?.quarantine ?? true,
+      summary: raw?.triggers?.summary ?? false,
+    },
+    minimumPriorityForPush: raw?.minimumPriorityForPush || 'High',
+    minimumPriorityForWhatsApp: raw?.minimumPriorityForWhatsApp || 'Critical',
+  };
+}
+
 export interface SecuritySettings {
   sensitivity: 'Low' | 'Balanced' | 'High' | 'Maximum' | 'low' | 'balanced' | 'high' | 'maximum';
   autoQuarantinePhishing?: boolean;
@@ -291,3 +339,52 @@ export interface ChatMessage {
   citedEmailIds?: string[];
   isSecurityWarning?: boolean;
 }
+
+export interface GoogleCalendarEvent {
+  id: string;
+  summary: string;
+  description?: string;
+  start: { dateTime?: string; date?: string };
+  end: { dateTime?: string; date?: string };
+  location?: string;
+  htmlLink?: string;
+  sourceEmailId?: string;
+  sourceEmailSubject?: string;
+}
+
+export interface GoogleTaskItem {
+  id: string;
+  title: string;
+  notes?: string;
+  due?: string;
+  status: 'needsAction' | 'completed';
+  updated?: string;
+  sourceEmailId?: string;
+}
+
+export interface GoogleDriveFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  webViewLink?: string;
+  iconLink?: string;
+  size?: number;
+  description?: string;
+}
+
+export interface EmailDriveAttachment {
+  id: string;
+  emailId: string;
+  fileId: string;
+  name: string;
+  mimeType: string;
+  webViewLink?: string;
+  addedAt: string;
+}
+
+export type PriorityQuadrant =
+  | 'IMPORTANT_AND_URGENT'
+  | 'IMPORTANT_NOT_URGENT'
+  | 'URGENT_NOT_IMPORTANT'
+  | 'NORMAL';
+

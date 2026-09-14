@@ -60,7 +60,20 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  // Body parsers with generous limits
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+  // CORS and Preflight handling
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-session-token');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
 
   // ==========================================================================
   // 1. HEALTH & SYSTEM METRICS
@@ -338,30 +351,62 @@ async function startServer() {
   // ==========================================================================
   // 7. AI DAILY BRIEFING & INTELLIGENCE
   // ==========================================================================
+  const generateFallbackBriefingText = (userName: string, emailsList: Email[]): string => {
+    const actionItems = emailsList.filter((e) => e.aiAnalysis?.actionRequired);
+    const deadlines = emailsList.filter((e) => Boolean(e.aiAnalysis?.deadline));
+    const threats = emailsList.filter((e) => e.securityAnalysis?.classification && e.securityAnalysis.classification !== 'SAFE');
+
+    const greetingName = userName || 'Alex';
+    let summary = `Good day, ${greetingName}. You have ${actionItems.length} email${actionItems.length === 1 ? '' : 's'} requiring direct action across your connected inboxes.`;
+
+    if (deadlines.length > 0) {
+      const topDeadline = deadlines[0];
+      summary += ` Primary timeline notice: "${topDeadline.subject}" due around ${topDeadline.aiAnalysis.deadline}.`;
+    }
+
+    if (actionItems.length > 0) {
+      const topAction = actionItems.find((e) => e.aiAnalysis?.recommendedAction) || actionItems[0];
+      if (topAction.aiAnalysis?.recommendedAction) {
+        summary += ` Recommended action: ${topAction.aiAnalysis.recommendedAction}`;
+      }
+    }
+
+    if (threats.length > 0) {
+      summary += `\n\n🛡️ Security Status: MailSentinel successfully quarantined ${threats.length} high-risk threat${threats.length === 1 ? '' : 's'} (including spoofing and credential harvesting attempts), keeping your accounts safeguarded.`;
+    } else {
+      summary += `\n\n🛡️ Security Status: All connected accounts are healthy with active heuristic monitoring and zero detected threats.`;
+    }
+
+    return summary;
+  };
+
   const handleDailyBriefing = async (req: express.Request, res: express.Response) => {
     try {
-      const user = (req as AuthenticatedRequest).user;
-      const emails = db.getEmails(user.id);
-      const threats = emails.filter((e) => e.securityAnalysis.classification !== 'SAFE');
-      const actionItems = emails.filter((e) => e.aiAnalysis.actionRequired);
-      const deadlines = emails.filter((e) => Boolean(e.aiAnalysis.deadline));
+      const user = (req as AuthenticatedRequest).user || {
+        id: 'user-default',
+        name: 'Alex Carter',
+        email: 'alex.carter@sentinel-demo.io',
+      };
+
+      let emails: Email[] = [];
+      if (req.body?.emails && Array.isArray(req.body.emails) && req.body.emails.length > 0) {
+        emails = req.body.emails;
+      } else {
+        emails = db.getEmails(user.id);
+        if (!emails || emails.length === 0) {
+          emails = db.getEmails('user-default');
+        }
+      }
+
+      const threats = emails.filter((e) => e.securityAnalysis?.classification && e.securityAnalysis.classification !== 'SAFE');
+      const actionItems = emails.filter((e) => e.aiAnalysis?.actionRequired);
+      const deadlines = emails.filter((e) => Boolean(e.aiAnalysis?.deadline));
+      const targetName = req.body?.userName || user.name || 'Alex';
 
       const ai = getGeminiClient();
       if (!ai) {
-        let summary = `Good day, ${user.name || 'Alex'}.\n\n`;
-        summary += `Across your connected mailboxes, you have **${actionItems.length} emails requiring attention**`;
-        if (deadlines.length > 0) {
-          summary += `, including ${deadlines.length} upcoming deadlines (such as "${deadlines[0].subject}" due ${deadlines[0].aiAnalysis.deadline}).\n\n`;
-        } else {
-          summary += ` and no pending deadline blockers.\n\n`;
-        }
-        if (threats.length > 0) {
-          summary += `🛡️ **Security Status**: MailSentinel intercepted and quarantined **${threats.length} threat(s)**, protecting your mailboxes from phishing and impersonation.`;
-        } else {
-          summary += `🛡️ **Security Status**: All protected mailboxes are clear with zero active threat alerts.`;
-        }
         return res.json({
-          summary,
+          summary: generateFallbackBriefingText(targetName, emails),
           urgentCount: actionItems.length,
           threatsCount: threats.length,
         });
@@ -371,16 +416,17 @@ async function startServer() {
         account: e.accountEmail,
         from: e.senderName,
         subject: e.subject,
-        priority: e.aiAnalysis.priority,
-        actionRequired: e.aiAnalysis.actionRequired,
-        recommendedAction: e.aiAnalysis.recommendedAction,
-        deadline: e.aiAnalysis.deadline,
-        security: e.securityAnalysis.classification,
-        summary: e.aiAnalysis.summary,
+        priority: e.aiAnalysis?.priority,
+        actionRequired: e.aiAnalysis?.actionRequired,
+        recommendedAction: e.aiAnalysis?.recommendedAction,
+        deadline: e.aiAnalysis?.deadline,
+        security: e.securityAnalysis?.classification,
+        summary: e.aiAnalysis?.summary,
       }));
 
-      const aiResponse = await callGeminiWithResilience(ai, {
-        contents: `Generate a productivity-first Daily Email Intelligence Briefing for user ${user.name || 'Alex'}:
+      // Set a 9.5s timeout for Gemini API call so requests never stall or cause client fetch errors
+      const geminiCallPromise = callGeminiWithResilience(ai, {
+        contents: `Generate a productivity-first Daily Email Intelligence Briefing for user ${targetName}:
 ${JSON.stringify(summaryPayload, null, 2)}`,
         config: {
           systemInstruction: `You are MailSentinel AI Personal Email Assistant.
@@ -393,22 +439,32 @@ Tone: Helpful, personal, clear, productivity-focused. Do NOT use cyber-command j
         },
       });
 
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('AI briefing generation timed out')), 9500)
+      );
+
+      const aiResponse: any = await Promise.race([geminiCallPromise, timeoutPromise]);
+
       res.json({
-        summary: aiResponse.text,
+        summary: aiResponse?.text || generateFallbackBriefingText(targetName, emails),
         urgentCount: actionItems.length,
         threatsCount: threats.length,
       });
     } catch (err: any) {
-      console.warn('Daily briefing generation fallback:', err);
+      console.warn('Daily briefing generation fallback triggered:', err?.message || err);
+      const targetName = req.body?.userName || 'Alex';
+      const fallbackEmails = (req.body?.emails && Array.isArray(req.body.emails)) ? req.body.emails : db.getEmails('user-default');
       res.json({
-        summary: `Your inbox is up to date. Review items in Needs Attention to stay ahead of upcoming tasks.`,
-        urgentCount: 0,
-        threatsCount: 0,
+        summary: generateFallbackBriefingText(targetName, fallbackEmails),
+        urgentCount: fallbackEmails.filter((e: any) => e.aiAnalysis?.actionRequired).length,
+        threatsCount: fallbackEmails.filter((e: any) => e.securityAnalysis?.classification && e.securityAnalysis.classification !== 'SAFE').length,
       });
     }
   };
 
   app.get('/api/summary/daily', authMiddleware, handleDailyBriefing);
+  app.post('/api/summary/daily', authMiddleware, handleDailyBriefing);
+  app.get('/api/gemini/daily-summary', authMiddleware, handleDailyBriefing);
   app.post('/api/gemini/daily-summary', authMiddleware, handleDailyBriefing);
 
   // ==========================================================================

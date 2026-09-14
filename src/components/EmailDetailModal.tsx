@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import DOMPurify from 'dompurify';
 import {
   X,
@@ -8,6 +8,8 @@ import {
   FileWarning,
   Sparkles,
   Calendar,
+  CalendarPlus,
+  CalendarCheck,
   Clock,
   User,
   Building,
@@ -24,8 +26,19 @@ import {
   ArrowRight,
   ExternalLink,
   Lock,
+  MapPin,
+  Users,
 } from 'lucide-react';
-import { Email, ExtractedEntity, PriorityLevel } from '../types';
+import { Email, ExtractedEntity, PriorityLevel, EventInformation, GoogleCalendarEvent } from '../types';
+import {
+  createGoogleCalendarEvent,
+  createGoogleTask,
+  saveSummaryToGoogleDrive,
+  openGooglePicker,
+} from '../lib/workspace';
+import { getCachedAccessToken, getCurrentUser, googleSignIn } from '../lib/firebase';
+import { FirestoreSyncService } from '../lib/firestoreService';
+import { HardDrive, CheckSquare, FolderPlus } from 'lucide-react';
 
 interface EmailDetailModalProps {
   email: Email | null;
@@ -34,7 +47,167 @@ interface EmailDetailModalProps {
   onToggleQuarantine: (id: string, current: boolean) => void;
   onWhitelistDomain: (domain: string) => void;
   onBlacklistDomain: (domain: string) => void;
-  onRequestConfirm: (params: { title: string; description: string; onConfirm: () => void; isDestructive?: boolean }) => void;
+  onRequestConfirm: (params: {
+    title: string;
+    description: string;
+    onConfirm: () => void;
+    isDestructive?: boolean;
+    confirmLabel?: string;
+  }) => void;
+}
+
+export function detectEventInformation(email: Email | null): EventInformation | null {
+  if (!email || !email.aiAnalysis) return null;
+
+  // 1. Explicit eventInformation in email.aiAnalysis
+  if (email.aiAnalysis.eventInformation) {
+    const info = email.aiAnalysis.eventInformation;
+    if (info.title && info.startTime) {
+      return info;
+    }
+  }
+
+  // 2. Extracted Entities: meeting entity
+  const meetingEntity = email.aiAnalysis.extractedEntities?.find((ent) => ent.type === 'meeting');
+  if (meetingEntity) {
+    let validStart: string | null = null;
+    const rawVal = meetingEntity.value?.trim();
+    if (rawVal && !isNaN(Date.parse(rawVal))) {
+      validStart = new Date(rawVal).toISOString();
+    } else {
+      // Try regex search for ISO or date strings within value or context
+      const match = (meetingEntity.value + ' ' + (meetingEntity.context || '')).match(
+        /\b\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})?)?\b/
+      );
+      if (match && !isNaN(Date.parse(match[0]))) {
+        validStart = new Date(match[0]).toISOString();
+      }
+    }
+
+    if (validStart) {
+      // Duration calculation
+      const durationMatch = (meetingEntity.context || '').match(/(\d+)\s*(?:mins?|minutes?|hrs?|hours?)/i);
+      let durationMs = 60 * 60 * 1000;
+      if (durationMatch) {
+        const val = parseInt(durationMatch[1], 10);
+        if (/hr|hour/i.test(durationMatch[0])) {
+          durationMs = val * 60 * 60 * 1000;
+        } else {
+          durationMs = val * 60 * 1000;
+        }
+      }
+      const endDateTime = new Date(new Date(validStart).getTime() + durationMs).toISOString();
+
+      // Location detection
+      const locationEntity = email.aiAnalysis.extractedEntities?.find((ent) => ent.type === 'location');
+      let location = locationEntity?.value;
+      if (!location && meetingEntity.context) {
+        const locMatch = meetingEntity.context.match(/\b(?:in|at|room|hall)\s+([A-Za-z0-9\s#\-]+)/i);
+        if (locMatch) {
+          location = locMatch[0].replace(/^(?:in|at)\s+/i, '').trim();
+        }
+      }
+
+      // Title derivation
+      let title = meetingEntity.context || email.subject;
+      if (title.length > 5) {
+        title = title.replace(/\s*\(\d+\s*(?:mins?|minutes?|hrs?|hours?)\)/i, '').trim();
+      }
+
+      return {
+        title,
+        summary: meetingEntity.context || email.subject,
+        description: `MailSentinel AI Event Context:\n${email.aiAnalysis.summary || email.subject}\n\nOrganizer/Sender: ${email.senderName} (${email.sender})`,
+        startTime: validStart,
+        endTime: endDateTime,
+        location,
+        attendees: [email.sender],
+      };
+    }
+  }
+
+  // 3. Extracted Entities: deadline entity representing an event/meeting/defense/review
+  const deadlineEntity = email.aiAnalysis.extractedEntities?.find((ent) => ent.type === 'deadline');
+  if (deadlineEntity) {
+    const rawVal = deadlineEntity.value?.trim();
+    if (rawVal && !isNaN(Date.parse(rawVal))) {
+      const combined = `${deadlineEntity.context || ''} ${email.subject} ${email.aiAnalysis.recommendedAction || ''}`;
+      const isEvent = /meeting|presentation|defense|review|interview|session|sync|webinar|call|conference/i.test(combined);
+      if (isEvent) {
+        const start = new Date(rawVal).toISOString();
+        const end = new Date(new Date(start).getTime() + 60 * 60 * 1000).toISOString();
+        return {
+          title: deadlineEntity.context || email.subject,
+          summary: deadlineEntity.context || email.subject,
+          description: `MailSentinel AI Context:\n${email.aiAnalysis.summary || ''}\nDeadline Context: ${deadlineEntity.context || ''}`,
+          startTime: start,
+          endTime: end,
+          attendees: [email.sender],
+        };
+      }
+    }
+  }
+
+  // 4. AI Analysis deadline if text signifies scheduled event
+  if (email.aiAnalysis.deadline) {
+    const rawVal = email.aiAnalysis.deadline.split('(')[0].trim();
+    if (rawVal && !isNaN(Date.parse(rawVal))) {
+      const combined = `${email.subject} ${email.aiAnalysis.summary || ''} ${email.aiAnalysis.recommendedAction || ''}`;
+      const isEvent = /meeting|presentation|defense|review|interview|session|sync|webinar|call/i.test(combined);
+      if (isEvent) {
+        const start = new Date(rawVal).toISOString();
+        const end = new Date(new Date(start).getTime() + 60 * 60 * 1000).toISOString();
+        return {
+          title: email.subject,
+          summary: email.aiAnalysis.summary,
+          description: `MailSentinel AI Context:\n${email.aiAnalysis.summary}\n\nSender: ${email.senderName} (${email.sender})`,
+          startTime: start,
+          endTime: end,
+          attendees: [email.sender],
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+export function formatEventTimeRange(startIso: string, endIso?: string): string {
+  try {
+    const start = new Date(startIso);
+    if (isNaN(start.getTime())) return startIso;
+
+    const dateFormatted = new Intl.DateTimeFormat('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(start);
+
+    const startTimeFormatted = new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(start);
+
+    if (!endIso) {
+      return `${dateFormatted} • ${startTimeFormatted}`;
+    }
+
+    const end = new Date(endIso);
+    if (isNaN(end.getTime())) {
+      return `${dateFormatted} • ${startTimeFormatted}`;
+    }
+
+    const endTimeFormatted = new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short',
+    }).format(end);
+
+    return `${dateFormatted} • ${startTimeFormatted} – ${endTimeFormatted}`;
+  } catch {
+    return startIso;
+  }
 }
 
 export const EmailDetailModal: React.FC<EmailDetailModalProps> = ({
@@ -54,6 +227,288 @@ export const EmailDetailModal: React.FC<EmailDetailModalProps> = ({
   const [generatedDraft, setGeneratedDraft] = useState('');
   const [isGeneratingReply, setIsGeneratingReply] = useState(false);
   const [copiedDraft, setCopiedDraft] = useState(false);
+  const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
+  const [attachedDriveFiles, setAttachedDriveFiles] = useState<
+    Array<{ id: string; name: string; url: string; mimeType: string }>
+  >([]);
+  const [isWorkspaceActionInProgress, setIsWorkspaceActionInProgress] = useState(false);
+  const [isAddingEvent, setIsAddingEvent] = useState(false);
+  const [addedCalendarEvent, setAddedCalendarEvent] = useState<GoogleCalendarEvent | null>(null);
+
+  // Detect event information from the email's AI analysis
+  const detectedEvent = useMemo(() => detectEventInformation(email), [email]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const checkExistingCalendarEvent = async () => {
+      const user = getCurrentUser();
+      if (!user || !email) return;
+      try {
+        const events = await FirestoreSyncService.loadCalendarEvents(user.uid);
+        if (!isMounted) return;
+        const matched = events.find(
+          (ev) =>
+            ev.sourceEmailId === email.id ||
+            (detectedEvent && ev.summary && ev.summary.toLowerCase() === detectedEvent.title.toLowerCase())
+        );
+        if (matched) {
+          setAddedCalendarEvent(matched);
+        }
+      } catch (e) {
+        // non-blocking
+      }
+    };
+    checkExistingCalendarEvent();
+    return () => {
+      isMounted = false;
+    };
+  }, [email, detectedEvent]);
+
+  const showWorkspaceMessage = (msg: string) => {
+    setWorkspaceMessage(msg);
+    setTimeout(() => setWorkspaceMessage(null), 4000);
+  };
+
+  const executeCreateCalendarEvent = async (token: string, eventInfo: EventInformation) => {
+    setIsAddingEvent(true);
+    setIsWorkspaceActionInProgress(true);
+    try {
+      const startDateTime = eventInfo.startTime;
+      const endDateTime =
+        eventInfo.endTime ||
+        new Date(new Date(startDateTime).getTime() + 60 * 60 * 1000).toISOString();
+
+      const created = await createGoogleCalendarEvent(token, {
+        summary: eventInfo.title,
+        description:
+          eventInfo.description ||
+          eventInfo.summary ||
+          `MailSentinel AI Context:\nEmail: ${email.subject}\nFrom: ${email.senderName} (${email.sender})`,
+        startDateTime,
+        endDateTime,
+        location: eventInfo.location,
+      });
+
+      // Attach email source metadata
+      created.sourceEmailId = email.id;
+      created.sourceEmailSubject = email.subject;
+
+      const user = getCurrentUser();
+      if (user) {
+        await FirestoreSyncService.saveCalendarEvent(user.uid, created);
+      }
+
+      setAddedCalendarEvent(created);
+      showWorkspaceMessage(`"${created.summary}" successfully added to your Google Calendar!`);
+    } catch (err: any) {
+      console.error('Google Calendar creation failed:', err);
+      showWorkspaceMessage(`Calendar error: ${err.message || 'Failed to create event'}`);
+    } finally {
+      setIsAddingEvent(false);
+      setIsWorkspaceActionInProgress(false);
+    }
+  };
+
+  const handleCreateDetectedEvent = (eventInfo: EventInformation) => {
+    const token = getCachedAccessToken();
+    if (!token) {
+      onRequestConfirm({
+        title: 'Google Calendar Sign-In Required',
+        description: `MailSentinel requires authorization to schedule "${eventInfo.title}" on your live Google Calendar. Would you like to connect your Google account now?`,
+        confirmLabel: 'Connect Google Calendar',
+        onConfirm: async () => {
+          try {
+            setIsAddingEvent(true);
+            const userCred = await googleSignIn();
+            if (userCred?.accessToken) {
+              await executeCreateCalendarEvent(userCred.accessToken, eventInfo);
+            } else {
+              showWorkspaceMessage('Google sign-in was cancelled or no token was received.');
+            }
+          } catch (err: any) {
+            console.error('Sign-in failed:', err);
+            showWorkspaceMessage(`Sign in failed: ${err.message || 'Unknown error'}`);
+          } finally {
+            setIsAddingEvent(false);
+          }
+        },
+      });
+      return;
+    }
+
+    const timeString = formatEventTimeRange(eventInfo.startTime, eventInfo.endTime);
+    onRequestConfirm({
+      title: 'Add Event to Google Calendar?',
+      description: `Create "${eventInfo.title}" on ${timeString}${
+        eventInfo.location ? ` at ${eventInfo.location}` : ''
+      } in your Google Calendar?`,
+      confirmLabel: 'Add to Calendar',
+      onConfirm: async () => {
+        await executeCreateCalendarEvent(token, eventInfo);
+      },
+    });
+  };
+
+  const handleAddCalendarEvent = () => {
+    if (detectedEvent) {
+      handleCreateDetectedEvent(detectedEvent);
+      return;
+    }
+
+    const token = getCachedAccessToken();
+    if (!token) {
+      onRequestConfirm({
+        title: 'Google Calendar Sign-In Required',
+        description: 'Connect your Google account to schedule events on Google Calendar.',
+        confirmLabel: 'Connect Google Calendar',
+        onConfirm: async () => {
+          try {
+            const userCred = await googleSignIn();
+            if (userCred?.accessToken) {
+              handleAddCalendarEvent();
+            }
+          } catch (e: any) {
+            showWorkspaceMessage(`Sign in failed: ${e.message}`);
+          }
+        },
+      });
+      return;
+    }
+
+    const startDateTime = new Date(Date.now() + 86400000).toISOString();
+    const endDateTime = new Date(Date.now() + 86400000 + 3600000).toISOString();
+
+    onRequestConfirm({
+      title: 'Schedule Google Calendar Event?',
+      description: `Create calendar event "Follow up: ${email.subject}" based on this email's action items?`,
+      confirmLabel: 'Add to Calendar',
+      onConfirm: async () => {
+        await executeCreateCalendarEvent(token, {
+          title: `Follow up: ${email.subject}`,
+          summary: email.aiAnalysis.summary,
+          description: `MailSentinel Context:\nSummary: ${email.aiAnalysis.summary}\nSender: ${email.senderName} (${email.sender})`,
+          startTime: startDateTime,
+          endTime: endDateTime,
+        });
+      },
+    });
+  };
+
+  const handleCreateGoogleTask = () => {
+    const token = getCachedAccessToken();
+    if (!token) {
+      showWorkspaceMessage('Please connect your Google Account first via Workspace or Accounts.');
+      return;
+    }
+
+    const title = email.aiAnalysis.recommendedAction || `Follow up: ${email.subject}`;
+
+    onRequestConfirm({
+      title: 'Create Google Task?',
+      description: `Add action item "${title}" to your Google Tasks?`,
+      confirmLabel: 'Create Task',
+      onConfirm: async () => {
+        setIsWorkspaceActionInProgress(true);
+        try {
+          const task = await createGoogleTask(token, {
+            title,
+            notes: `Source: ${email.subject} from ${email.senderName}. Email ID: ${email.id}`,
+            due: email.aiAnalysis.deadline ? new Date(Date.now() + 86400000 * 2).toISOString() : undefined,
+          });
+          const user = getCurrentUser();
+          if (user) {
+            await FirestoreSyncService.saveTask(user.uid, task);
+          }
+          showWorkspaceMessage('Task added to Google Tasks!');
+        } catch (err: any) {
+          console.error(err);
+          showWorkspaceMessage(`Task error: ${err.message}`);
+        } finally {
+          setIsWorkspaceActionInProgress(false);
+        }
+      },
+    });
+  };
+
+  const handleExportSummaryToDrive = () => {
+    const token = getCachedAccessToken();
+    if (!token) {
+      showWorkspaceMessage('Please connect your Google Account first via Workspace or Accounts.');
+      return;
+    }
+
+    const fileName = `MailSentinel_Summary_${email.subject.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30)}`;
+    const content = `MAILSENTINEL AI EMAIL ANALYSIS & SUMMARY
+======================================================
+Subject: ${email.subject}
+Sender: ${email.senderName} <${email.sender}>
+Received: ${email.receivedAt}
+Category: ${email.aiAnalysis.category}
+Priority: ${email.aiAnalysis.priority} (Score: ${email.aiAnalysis.priorityScore}/100)
+Security Classification: ${email.securityAnalysis.classification} (Risk: ${email.securityAnalysis.riskScore}/100)
+
+AI SUMMARY:
+${email.aiAnalysis.summary}
+
+RECOMMENDED ACTION:
+${email.aiAnalysis.recommendedAction}
+
+${email.aiAnalysis.deadline ? `DEADLINE:\n${email.aiAnalysis.deadline}\n` : ''}
+ORIGINAL MESSAGE SNIPPET:
+${email.bodySnippet || email.bodyText}
+`;
+
+    onRequestConfirm({
+      title: 'Save AI Analysis to Google Drive?',
+      description: `Create document "${fileName}.txt" with complete AI summary and security analysis in Google Drive?`,
+      confirmLabel: 'Save to Drive',
+      onConfirm: async () => {
+        setIsWorkspaceActionInProgress(true);
+        try {
+          await saveSummaryToGoogleDrive(token, fileName, content);
+          showWorkspaceMessage('Saved AI analysis document to your Google Drive!');
+        } catch (err: any) {
+          console.error(err);
+          showWorkspaceMessage(`Drive error: ${err.message}`);
+        } finally {
+          setIsWorkspaceActionInProgress(false);
+        }
+      },
+    });
+  };
+
+  const handleAttachFromGooglePicker = () => {
+    const token = getCachedAccessToken();
+    if (!token) {
+      showWorkspaceMessage('Please connect your Google Account first via Workspace or Accounts.');
+      return;
+    }
+
+    const opened = openGooglePicker(
+      token,
+      async (doc) => {
+        setAttachedDriveFiles((prev) => [...prev, doc]);
+        const user = getCurrentUser();
+        if (user) {
+          await FirestoreSyncService.saveDriveAttachment(user.uid, {
+            id: `att-drive-${Date.now()}`,
+            emailId: email.id,
+            fileId: doc.id,
+            name: doc.name,
+            mimeType: doc.mimeType,
+            webViewLink: doc.url,
+            addedAt: new Date().toISOString(),
+          });
+        }
+        showWorkspaceMessage(`Attached Google Drive file "${doc.name}"`);
+      },
+      () => {}
+    );
+
+    if (!opened) {
+      showWorkspaceMessage('Opening Google Picker... Please ensure popups are permitted.');
+    }
+  };
 
   const isPhishing = email.securityAnalysis.classification === 'PHISHING';
   const isMalicious = email.securityAnalysis.classification === 'MALICIOUS';
@@ -258,6 +713,223 @@ export const EmailDetailModal: React.FC<EmailDetailModalProps> = ({
                     </div>
                   </div>
                 )}
+
+                {/* Detected Event Information & Direct Calendar Sync Card */}
+                {detectedEvent && (
+                  <div
+                    id="ai-detected-event-banner"
+                    className="p-3.5 rounded-xl bg-gradient-to-r from-indigo-950/60 via-slate-900 to-indigo-900/40 border border-indigo-500/40 shadow-lg shadow-indigo-950/30 space-y-3"
+                  >
+                    <div className="flex items-start justify-between flex-wrap gap-3">
+                      <div className="flex items-start gap-2.5">
+                        <span className="p-2 rounded-lg bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shrink-0 mt-0.5">
+                          <Calendar className="w-4 h-4" />
+                        </span>
+                        <div>
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-300">
+                              Event Detected in AI Analysis
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                              Google Calendar Ready
+                            </span>
+                          </div>
+                          <h4 className="text-sm font-bold text-white tracking-tight leading-snug">
+                            {detectedEvent.title}
+                          </h4>
+                          {detectedEvent.summary && detectedEvent.summary !== detectedEvent.title && (
+                            <p className="text-xs text-slate-300 mt-0.5">{detectedEvent.summary}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Action Button: Add to Calendar or Scheduled Status */}
+                      <div className="shrink-0 flex items-center gap-2">
+                        {addedCalendarEvent ? (
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Added to Calendar</span>
+                            </span>
+                            {addedCalendarEvent.htmlLink && (
+                              <a
+                                href={addedCalendarEvent.htmlLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition"
+                              >
+                                <span>Open</span>
+                                <ExternalLink className="w-3 h-3 text-slate-400" />
+                              </a>
+                            )}
+                          </div>
+                        ) : (
+                          <button
+                            id="detected-event-add-calendar-btn"
+                            onClick={() => handleCreateDetectedEvent(detectedEvent)}
+                            disabled={isAddingEvent || isWorkspaceActionInProgress}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-white text-xs font-semibold shadow-md shadow-indigo-900/40 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isAddingEvent ? (
+                              <>
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                <span>Adding to Calendar...</span>
+                              </>
+                            ) : (
+                              <>
+                                <CalendarPlus className="w-3.5 h-3.5" />
+                                <span>Add to Calendar</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Detected Event Details Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-800/70 border border-slate-700/60">
+                        <Clock className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                        <div className="min-w-0">
+                          <span className="text-[10px] uppercase font-semibold text-slate-400 block">Date & Time</span>
+                          <span className="font-medium text-slate-200 truncate block">
+                            {formatEventTimeRange(detectedEvent.startTime, detectedEvent.endTime)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {detectedEvent.location ? (
+                        <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-800/70 border border-slate-700/60">
+                          <MapPin className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          <div className="min-w-0">
+                            <span className="text-[10px] uppercase font-semibold text-slate-400 block">Location</span>
+                            <span className="font-medium text-slate-200 truncate block">{detectedEvent.location}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-800/70 border border-slate-700/60">
+                          <CalendarCheck className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                          <div className="min-w-0">
+                            <span className="text-[10px] uppercase font-semibold text-slate-400 block">Target Calendar</span>
+                            <span className="font-medium text-slate-200 truncate block">Primary Google Calendar</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {detectedEvent.attendees && detectedEvent.attendees.length > 0 && (
+                        <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-800/70 border border-slate-700/60 sm:col-span-2">
+                          <Users className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                          <div className="min-w-0">
+                            <span className="text-[10px] uppercase font-semibold text-slate-400 block">
+                              Attendees & Invitees
+                            </span>
+                            <span className="font-medium text-slate-200 truncate block">
+                              {detectedEvent.attendees.join(', ')}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {detectedEvent.description && (
+                      <div className="text-[11px] text-slate-400 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80 leading-relaxed">
+                        <span className="font-semibold text-slate-300 block mb-0.5">Event Description & Notes:</span>
+                        <p className="whitespace-pre-line">{detectedEvent.description}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Google Workspace Productivity Actions */}
+                <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-300 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Google Workspace Productivity Actions</span>
+                    </span>
+                    {workspaceMessage && (
+                      <span className="text-[10px] text-cyan-300 animate-in fade-in">{workspaceMessage}</span>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      id="email-add-calendar-btn"
+                      onClick={handleAddCalendarEvent}
+                      disabled={isWorkspaceActionInProgress || isAddingEvent}
+                      className="px-2.5 py-1.5 rounded-lg bg-indigo-950/50 hover:bg-indigo-900/50 border border-indigo-800/60 text-indigo-300 text-xs font-medium flex items-center gap-1.5 transition disabled:opacity-50"
+                    >
+                      {addedCalendarEvent ? (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Event in Google Calendar</span>
+                        </>
+                      ) : (
+                        <>
+                          <CalendarPlus className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>
+                            {detectedEvent ? 'Add Detected Event to Calendar' : 'Add to Google Calendar'}
+                          </span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      id="email-add-task-btn"
+                      onClick={handleCreateGoogleTask}
+                      disabled={isWorkspaceActionInProgress}
+                      className="px-2.5 py-1.5 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/40 border border-emerald-800/60 text-emerald-300 text-xs font-medium flex items-center gap-1.5 transition disabled:opacity-50"
+                    >
+                      <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Create Google Task</span>
+                    </button>
+
+                    <button
+                      id="email-export-drive-btn"
+                      onClick={handleExportSummaryToDrive}
+                      disabled={isWorkspaceActionInProgress}
+                      className="px-2.5 py-1.5 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/40 border border-cyan-800/60 text-cyan-300 text-xs font-medium flex items-center gap-1.5 transition disabled:opacity-50"
+                    >
+                      <FolderPlus className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Save Summary to Drive</span>
+                    </button>
+
+                    <button
+                      id="email-attach-picker-btn"
+                      onClick={handleAttachFromGooglePicker}
+                      disabled={isWorkspaceActionInProgress}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition disabled:opacity-50"
+                    >
+                      <HardDrive className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Attach via Google Picker</span>
+                    </button>
+                  </div>
+
+                  {/* Attached Drive Files list */}
+                  {attachedDriveFiles.length > 0 && (
+                    <div className="pt-2 border-t border-slate-800/80 space-y-1">
+                      <span className="text-[10px] uppercase font-semibold text-slate-400 block">
+                        Attached Google Drive Files:
+                      </span>
+                      <div className="space-y-1">
+                        {attachedDriveFiles.map((f, i) => (
+                          <div key={i} className="flex items-center justify-between p-2 rounded bg-slate-800 text-xs">
+                            <span className="text-slate-200 truncate">{f.name}</span>
+                            <a
+                              href={f.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 text-[11px]"
+                            >
+                              <span>Open</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Original Email Header Metadata */}

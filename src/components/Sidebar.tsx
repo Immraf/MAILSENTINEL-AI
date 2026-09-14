@@ -13,6 +13,7 @@ import {
   Settings,
   Shield,
   ChevronRight,
+  HardDrive,
 } from 'lucide-react';
 
 export type NavView =
@@ -21,6 +22,7 @@ export type NavView =
   | 'needs_attention'
   | 'ask_ai'
   | 'deadlines'
+  | 'workspace'
   | 'security_center'
   | 'quarantine'
   | 'rules_whitelist'
@@ -86,6 +88,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
           label: 'Deadlines & Tasks',
           icon: CalendarCheck,
           badge: null,
+        },
+      ],
+    },
+    {
+      title: 'GOOGLE WORKSPACE',
+      items: [
+        {
+          id: 'workspace' as NavView,
+          label: 'Calendar, Drive & Tasks',
+          icon: HardDrive,
+          badge: 'Sync',
+          badgeColor: 'bg-indigo-500/20 text-indigo-300 font-mono text-[9px]',
         },
       ],
     },

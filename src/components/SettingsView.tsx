@@ -13,7 +13,7 @@ import {
   Check,
   Zap,
 } from 'lucide-react';
-import { NotificationConfig, SecuritySettings } from '../types';
+import { NotificationConfig, SecuritySettings, normalizeNotificationConfig } from '../types';
 
 interface SettingsViewProps {
   notifications: NotificationConfig;
@@ -32,6 +32,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 }) => {
   const [testSent, setTestSent] = useState(false);
   const [waConfigured, setWaConfigured] = useState<boolean | null>(null);
+
+  const safeNotif = normalizeNotificationConfig(notifications);
+  const quietHours = safeNotif.quietHours!;
+  const triggers = safeNotif.triggers!;
+
+  const updateNotif = (patch: Partial<NotificationConfig>) => {
+    onUpdateNotifications(normalizeNotificationConfig({ ...safeNotif, ...patch }));
+  };
 
   React.useEffect(() => {
     fetch('/api/accounts/config-status')
@@ -161,19 +169,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <span className="text-xs font-bold text-white">Web Push Notifications</span>
             </div>
             <button
-              onClick={() =>
-                onUpdateNotifications({
-                  ...notifications,
-                  pushEnabled: !notifications.pushEnabled,
-                })
-              }
+              onClick={() => updateNotif({ pushEnabled: !safeNotif.pushEnabled })}
               className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
-                notifications.pushEnabled
+                safeNotif.pushEnabled
                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                   : 'bg-slate-800 text-slate-500 border border-slate-700'
               }`}
             >
-              {notifications.pushEnabled ? 'ENABLED' : 'DISABLED'}
+              {safeNotif.pushEnabled ? 'ENABLED' : 'DISABLED'}
             </button>
           </div>
           <p className="text-xs text-slate-400">
@@ -189,19 +192,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <span className="text-xs font-bold text-white">WhatsApp Business Cloud API</span>
             </div>
             <button
-              onClick={() =>
-                onUpdateNotifications({
-                  ...notifications,
-                  whatsappEnabled: !notifications.whatsappEnabled,
-                })
-              }
+              onClick={() => updateNotif({ whatsappEnabled: !safeNotif.whatsappEnabled })}
               className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
-                notifications.whatsappEnabled
+                safeNotif.whatsappEnabled
                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                   : 'bg-slate-800 text-slate-500 border border-slate-700'
               }`}
             >
-              {notifications.whatsappEnabled ? 'ENABLED' : 'DISABLED'}
+              {safeNotif.whatsappEnabled ? 'ENABLED' : 'DISABLED'}
             </button>
           </div>
 
@@ -231,11 +229,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <label className="block text-slate-400 mb-1">Destination Phone Number</label>
               <input
                 type="text"
-                value={notifications.whatsappPhone || ''}
+                value={safeNotif.whatsappPhone || safeNotif.whatsappNumber || ''}
                 onChange={(e) =>
-                  onUpdateNotifications({
-                    ...notifications,
+                  updateNotif({
                     whatsappPhone: e.target.value,
+                    whatsappNumber: e.target.value,
                   })
                 }
                 placeholder="+1 (555) 019-2834"
@@ -263,21 +261,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
             <button
               onClick={() =>
-                onUpdateNotifications({
-                  ...notifications,
+                updateNotif({
                   quietHours: {
-                    ...notifications.quietHours,
-                    enabled: !notifications.quietHours.enabled,
+                    ...quietHours,
+                    enabled: !quietHours.enabled,
                   },
                 })
               }
               className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
-                notifications.quietHours.enabled
+                quietHours.enabled
                   ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40'
                   : 'bg-slate-800 text-slate-500 border border-slate-700'
               }`}
             >
-              {notifications.quietHours.enabled ? 'ACTIVE' : 'OFF'}
+              {quietHours.enabled ? 'ACTIVE' : 'OFF'}
             </button>
           </div>
 
@@ -286,11 +283,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <label className="block text-slate-400 mb-1">Start Time</label>
               <input
                 type="time"
-                value={notifications.quietHours.start}
+                value={quietHours.start}
                 onChange={(e) =>
-                  onUpdateNotifications({
-                    ...notifications,
-                    quietHours: { ...notifications.quietHours, start: e.target.value },
+                  updateNotif({
+                    quietHours: { ...quietHours, start: e.target.value },
                   })
                 }
                 className="w-full px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200"
@@ -300,11 +296,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <label className="block text-slate-400 mb-1">End Time</label>
               <input
                 type="time"
-                value={notifications.quietHours.end}
+                value={quietHours.end}
                 onChange={(e) =>
-                  onUpdateNotifications({
-                    ...notifications,
-                    quietHours: { ...notifications.quietHours, end: e.target.value },
+                  updateNotif({
+                    quietHours: { ...quietHours, end: e.target.value },
                   })
                 }
                 className="w-full px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200"
@@ -315,12 +310,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <label className="flex items-center gap-2 text-slate-300 cursor-pointer pt-1">
             <input
               type="checkbox"
-              checked={notifications.quietHours.allowCriticalSecurity}
+              checked={quietHours.allowCriticalSecurity}
               onChange={(e) =>
-                onUpdateNotifications({
-                  ...notifications,
+                updateNotif({
                   quietHours: {
-                    ...notifications.quietHours,
+                    ...quietHours,
                     allowCriticalSecurity: e.target.checked,
                   },
                 })
@@ -348,12 +342,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <label key={trig.key} className="flex items-center gap-2 text-slate-300 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={(notifications.triggers as any)[trig.key]}
+                  checked={Boolean((triggers as any)[trig.key])}
                   onChange={(e) =>
-                    onUpdateNotifications({
-                      ...notifications,
+                    updateNotif({
                       triggers: {
-                        ...notifications.triggers,
+                        ...triggers,
                         [trig.key]: e.target.checked,
                       },
                     })

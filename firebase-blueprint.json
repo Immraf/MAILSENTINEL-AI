@@ -1,0 +1,182 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Registered MailSentinel user profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "photoURL": { "type": "string", "maxLength": 512 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "email"]
+    },
+    "EmailAccount": {
+      "title": "EmailAccount",
+      "description": "Connected email account (Gmail, Outlook, Demo)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "provider": { "type": "string", "enum": ["gmail", "outlook", "demo"], "maxLength": 32 },
+        "emailAddress": { "type": "string", "maxLength": 256 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "accountLabel": { "type": "string", "maxLength": 64 },
+        "connectionStatus": { "type": "string", "enum": ["active", "syncing", "idle", "needs_reauth", "error"], "maxLength": 32 },
+        "lastSuccessfulSync": { "type": "string", "maxLength": 64 },
+        "lastSyncError": { "type": "string", "maxLength": 512 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "provider", "emailAddress", "connectionStatus"]
+    },
+    "Email": {
+      "title": "Email",
+      "description": "Stored email item with personal management metadata and AI indicators",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "accountId": { "type": "string", "maxLength": 128 },
+        "messageId": { "type": "string", "maxLength": 256 },
+        "threadId": { "type": "string", "maxLength": 256 },
+        "sender": { "type": "string", "maxLength": 256 },
+        "senderName": { "type": "string", "maxLength": 128 },
+        "subject": { "type": "string", "maxLength": 512 },
+        "date": { "type": "string", "maxLength": 64 },
+        "snippet": { "type": "string", "maxLength": 1024 },
+        "importance": { "type": "string", "enum": ["HIGH", "NORMAL", "LOW"], "maxLength": 16 },
+        "urgency": { "type": "string", "enum": ["CRITICAL", "URGENT", "NORMAL", "LOW"], "maxLength": 16 },
+        "isRead": { "type": "boolean" },
+        "isQuarantined": { "type": "boolean" },
+        "isArchived": { "type": "boolean" },
+        "hasAttachments": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "accountId", "sender", "subject"]
+    },
+    "EmailSummary": {
+      "title": "EmailSummary",
+      "description": "AI-generated personal management email summary and task/calendar extractions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "emailId": { "type": "string", "maxLength": 128 },
+        "summary": { "type": "string", "maxLength": 2048 },
+        "importance": { "type": "string", "maxLength": 32 },
+        "urgency": { "type": "string", "maxLength": 32 },
+        "suggestedAction": { "type": "string", "maxLength": 512 },
+        "requiresResponse": { "type": "boolean" },
+        "deadline": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "emailId", "summary"]
+    },
+    "CalendarEvent": {
+      "title": "CalendarEvent",
+      "description": "Calendar event detected from email or scheduled to Google Calendar",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "emailId": { "type": "string", "maxLength": 128 },
+        "googleEventId": { "type": "string", "maxLength": 256 },
+        "title": { "type": "string", "maxLength": 256 },
+        "description": { "type": "string", "maxLength": 2048 },
+        "start": { "type": "string", "maxLength": 64 },
+        "end": { "type": "string", "maxLength": 64 },
+        "location": { "type": "string", "maxLength": 256 },
+        "status": { "type": "string", "maxLength": 32 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "title", "start"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Action item or deadline converted to a personal Google Task",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "emailId": { "type": "string", "maxLength": 128 },
+        "googleTaskId": { "type": "string", "maxLength": 256 },
+        "title": { "type": "string", "maxLength": 256 },
+        "notes": { "type": "string", "maxLength": 2048 },
+        "due": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["needsAction", "completed"], "maxLength": 32 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "title", "status"]
+    },
+    "DriveAttachment": {
+      "title": "DriveAttachment",
+      "description": "Google Drive document linked to an email via Google Picker or export",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "emailId": { "type": "string", "maxLength": 128 },
+        "fileId": { "type": "string", "maxLength": 256 },
+        "fileName": { "type": "string", "maxLength": 256 },
+        "mimeType": { "type": "string", "maxLength": 128 },
+        "url": { "type": "string", "maxLength": 512 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "fileId", "fileName"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Account, security, and sync activity audit record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "action": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "maxLength": 64 },
+        "details": { "type": "string", "maxLength": 1024 },
+        "timestamp": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "action", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile document"
+    },
+    "/users/{userId}/emailAccounts/{accountId}": {
+      "schema": "EmailAccount",
+      "description": "User connected email accounts (up to 10 accounts)"
+    },
+    "/users/{userId}/emails/{emailId}": {
+      "schema": "Email",
+      "description": "Synchronized emails for the user"
+    },
+    "/users/{userId}/emailSummaries/{summaryId}": {
+      "schema": "EmailSummary",
+      "description": "AI intelligence and summaries"
+    },
+    "/users/{userId}/calendarEvents/{eventId}": {
+      "schema": "CalendarEvent",
+      "description": "Google Calendar and email-detected events"
+    },
+    "/users/{userId}/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "Google Tasks and actionable items"
+    },
+    "/users/{userId}/driveAttachments/{attachmentId}": {
+      "schema": "DriveAttachment",
+      "description": "Google Drive files linked via Picker or exported dossiers"
+    },
+    "/users/{userId}/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Audit trail of operations"
+    }
+  }
+}

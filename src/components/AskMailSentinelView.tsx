@@ -77,7 +77,7 @@ You can ask me to find deadlines, track financial invoices, compare threads, or 
 
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err: any) {
-      console.error(err);
+      console.warn('Ask MailSentinel query notice:', err);
       setMessages((prev) => [
         ...prev,
         {

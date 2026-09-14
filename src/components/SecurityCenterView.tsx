@@ -52,6 +52,73 @@ interface SecurityCenterViewProps {
   initialSubTab?: 'quarantine' | 'telemetry' | 'rules' | 'audit';
 }
 
+export function formatRuleCondition(condition: any): string {
+  if (!condition) return 'Any trigger';
+  if (typeof condition === 'string') {
+    switch (condition) {
+      case 'high_risk':
+        return 'Risk Score > 80';
+      case 'domain_mismatch':
+        return 'Domain Mismatch';
+      case 'macro_attachment':
+        return 'Executable / Script Attachment';
+      case 'financial_urgency':
+        return 'Urgent Wire / Bank Transfer';
+      default:
+        return condition.replace(/_/g, ' ');
+    }
+  }
+  if (typeof condition === 'object') {
+    if (condition.field) {
+      const op = condition.operator === 'equals' ? '=' : condition.operator === 'contains' ? 'contains' : condition.operator || '=';
+      return `${condition.field} ${op} "${condition.value ?? ''}"`;
+    }
+    try {
+      return Object.entries(condition)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(', ');
+    } catch {
+      return 'Custom Criteria';
+    }
+  }
+  return String(condition);
+}
+
+export function formatRuleAction(action: any, actionValue?: string): string {
+  if (!action) return 'Quarantine';
+  if (typeof action === 'string') {
+    switch (action) {
+      case 'quarantine':
+        return 'Quarantine';
+      case 'notify_urgent':
+        return 'Dispatch Alert';
+      case 'flag_suspicious':
+        return 'Flag Suspicious';
+      case 'set_priority':
+        return `Set Priority (${actionValue || 'High'})`;
+      case 'recommend_archive':
+        return 'Recommend Archive';
+      case 'set_category':
+        return `Set Category (${actionValue || 'Custom'})`;
+      default:
+        return action.replace(/_/g, ' ');
+    }
+  }
+  if (typeof action === 'object') {
+    if (action.type) {
+      return `${action.type.replace(/_/g, ' ')}${action.target ? `: ${action.target}` : ''}`;
+    }
+    try {
+      return Object.entries(action)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(', ');
+    } catch {
+      return 'Action Triggered';
+    }
+  }
+  return String(action);
+}
+
 export const SecurityCenterView: React.FC<SecurityCenterViewProps> = ({
   emails,
   quarantineItems,
@@ -350,8 +417,8 @@ export const SecurityCenterView: React.FC<SecurityCenterViewProps> = ({
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-slate-200">{rule.name}</span>
-                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-900 text-cyan-400">
-                        IF: {rule.condition} → THEN: {rule.action}
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-900 text-cyan-400 border border-slate-800">
+                        IF: {formatRuleCondition(rule.condition)} → THEN: {formatRuleAction(rule.action, rule.actionValue)}
                       </span>
                     </div>
                     <p className="text-slate-400 text-[11px]">{rule.description}</p>
@@ -485,33 +552,55 @@ export const SecurityCenterView: React.FC<SecurityCenterViewProps> = ({
           </div>
 
           <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-            {auditLogs.map((log) => (
-              <div
-                key={log.id}
-                className="p-3 rounded-lg bg-slate-800/50 border border-slate-700/60 flex items-start justify-between gap-4 text-xs"
-              >
-                <div className="space-y-1 min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-slate-200">{log.action}</span>
-                    <span
-                      className={`text-[10px] uppercase font-mono px-1.5 py-0.2 rounded ${
-                        log.severity === 'critical'
-                          ? 'bg-rose-500/20 text-rose-300'
-                          : log.severity === 'high'
-                          ? 'bg-amber-500/20 text-amber-300'
-                          : 'bg-slate-700 text-slate-300'
-                      }`}
-                    >
-                      {log.severity}
-                    </span>
+            {auditLogs.map((log) => {
+              const actionLabel = log.action || log.actionType?.replace(/_/g, ' ') || 'Audit Event';
+              const severityLevel = log.severity || (log.actionType === 'QUARANTINE_ACTION' ? 'high' : 'info');
+              const descriptionText = log.description || (typeof log.details === 'string' ? log.details : '');
+              const detailsObj = typeof log.details === 'object' && log.details !== null ? log.details : null;
+
+              return (
+                <div
+                  key={log.id}
+                  className="p-3 rounded-lg bg-slate-800/50 border border-slate-700/60 flex items-start justify-between gap-4 text-xs"
+                >
+                  <div className="space-y-1.5 min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-slate-200">{actionLabel}</span>
+                      <span
+                        className={`text-[10px] uppercase font-mono px-1.5 py-0.5 rounded ${
+                          severityLevel === 'critical'
+                            ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            : severityLevel === 'high'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : 'bg-slate-700 text-slate-300'
+                        }`}
+                      >
+                        {severityLevel}
+                      </span>
+                    </div>
+                    {descriptionText && (
+                      <p className="text-slate-300 text-[11px] leading-relaxed">{descriptionText}</p>
+                    )}
+                    {detailsObj && Object.keys(detailsObj).length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pt-0.5">
+                        {Object.entries(detailsObj).map(([key, val]) => (
+                          <span
+                            key={key}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-900/80 border border-slate-700/80 text-[10px] font-mono text-slate-300"
+                          >
+                            <span className="text-slate-400">{key}:</span>
+                            <span className="text-cyan-300 font-semibold">{String(val)}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <p className="text-slate-400 text-[11px] leading-relaxed">{log.details}</p>
+                  <span className="text-[11px] text-slate-400 font-mono shrink-0">
+                    {new Date(log.timestamp).toLocaleString()}
+                  </span>
                 </div>
-                <span className="text-[11px] text-slate-400 font-mono shrink-0">
-                  {new Date(log.timestamp).toLocaleString()}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

@@ -1,0 +1,125 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened global helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // User profile match
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidId(userId) &&
+        incoming().keys().hasAll(['id', 'email']) &&
+        incoming().id == userId &&
+        incoming().email is string && incoming().email.size() <= 256;
+      allow update: if isOwner(userId) &&
+        incoming().id == existing().id &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']);
+      allow delete: if isOwner(userId);
+
+      // Connected email accounts (up to 10 per user)
+      match /emailAccounts/{accountId} {
+        allow read, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(accountId) &&
+          incoming().keys().hasAll(['id', 'userId', 'provider', 'emailAddress', 'connectionStatus']) &&
+          incoming().userId == userId &&
+          incoming().emailAddress is string && incoming().emailAddress.size() <= 256 &&
+          incoming().provider in ['gmail', 'outlook', 'demo'];
+        allow update: if isOwner(userId) &&
+          incoming().userId == existing().userId &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'displayName', 'accountLabel', 'connectionStatus', 'lastSuccessfulSync', 'lastSyncError', 'updatedAt'
+          ]);
+        allow delete: if isOwner(userId);
+      }
+
+      // Synchronized user emails
+      match /emails/{emailId} {
+        allow read, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(emailId) &&
+          incoming().userId == userId &&
+          incoming().subject is string && incoming().subject.size() <= 512;
+        allow update: if isOwner(userId) &&
+          incoming().userId == existing().userId &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'isRead', 'isQuarantined', 'isArchived', 'importance', 'urgency', 'updatedAt'
+          ]);
+        allow delete: if isOwner(userId);
+      }
+
+      // AI email summaries
+      match /emailSummaries/{summaryId} {
+        allow read, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(summaryId) &&
+          incoming().userId == userId &&
+          incoming().summary is string && incoming().summary.size() <= 2048;
+        allow delete: if isOwner(userId);
+      }
+
+      // Google Calendar events
+      match /calendarEvents/{eventId} {
+        allow read, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(eventId) &&
+          incoming().userId == userId &&
+          incoming().title is string && incoming().title.size() <= 256;
+        allow update: if isOwner(userId) &&
+          incoming().userId == existing().userId &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'start', 'end', 'location', 'status']);
+        allow delete: if isOwner(userId);
+      }
+
+      // Google Tasks
+      match /tasks/{taskId} {
+        allow read, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(taskId) &&
+          incoming().userId == userId &&
+          incoming().title is string && incoming().title.size() <= 256;
+        allow update: if isOwner(userId) &&
+          incoming().userId == existing().userId &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'notes', 'due', 'status']);
+        allow delete: if isOwner(userId);
+      }
+
+      // Google Drive attachments
+      match /driveAttachments/{attachmentId} {
+        allow read, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(attachmentId) &&
+          incoming().userId == userId &&
+          incoming().fileId is string && incoming().fileId.size() <= 256;
+        allow update, delete: if isOwner(userId);
+      }
+
+      // Audit logs
+      match /auditLogs/{logId} {
+        allow read, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(logId) &&
+          incoming().userId == userId &&
+          incoming().action is string && incoming().action.size() <= 128;
+        allow update, delete: if false; // Immutable audit logs
+      }
+    }
+  }
+}
