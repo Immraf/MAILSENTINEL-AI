@@ -1,11 +1,12 @@
 {
-  "projectId": "model-gearing-472916-e6",
-  "appId": "1:898772341517:web:9c3ff850dcb3f454675644",
-  "apiKey": "AIzaSyBbjZl1RFEmintufSTpKdTYGw89-d5Jg1I",
-  "authDomain": "model-gearing-472916-e6.firebaseapp.com",
-  "storageBucket": "model-gearing-472916-e6.firebasestorage.app",
-  "messagingSenderId": "898772341517",
+  "projectId": "project-fb6003fc-15d3-429a-b8d",
+  "appId": "1:445127289597:web:91612cc1d229357c82ac94",
+  "apiKey": "AIzaSyCjsc45qNgsrDmC6Jo345ulgUFVnAGDynY",
+  "authDomain": "project-fb6003fc-15d3-429a-b8d.firebaseapp.com",
+  "storageBucket": "project-fb6003fc-15d3-429a-b8d.firebasestorage.app",
+  "messagingSenderId": "445127289597",
   "measurementId": "",
-  "oAuthClientId": "898772341517-id58mqgq846k455pj4s9fa6e1c9r5adv.apps.googleusercontent.com",
+  "oAuthClientId": "445127289597-3cgfeg41p0tmipu5qradtqvkkhkp6bnr.apps.googleusercontent.com",
+  "firestoreDatabaseId": "ai-studio-mailsentinelai-1e23f7fe-ceae-4f33-affc-2b5aa229d48d",
   "recaptchaSiteKey": ""
 }

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import DOMPurify from 'dompurify';
+import { apiFetch } from '../lib/api';
 import {
   X,
   Shield,
@@ -54,6 +55,7 @@ interface EmailDetailModalProps {
     isDestructive?: boolean;
     confirmLabel?: string;
   }) => void;
+  onEmailUpdate?: (updated: Email) => void;
 }
 
 export function detectEventInformation(email: Email | null): EventInformation | null {
@@ -218,9 +220,10 @@ export const EmailDetailModal: React.FC<EmailDetailModalProps> = ({
   onWhitelistDomain,
   onBlacklistDomain,
   onRequestConfirm,
+  onEmailUpdate,
 }) => {
-  if (!email) return null;
-
+  const [currentEmail, setCurrentEmail] = useState<Email | null>(email);
+  const [isReprocessing, setIsReprocessing] = useState(false);
   const [activeTab, setActiveTab] = useState<'content' | 'security' | 'reply'>('content');
   const [replyTone, setReplyTone] = useState<'professional' | 'concise' | 'firm'>('professional');
   const [customReplyGuidance, setCustomReplyGuidance] = useState('');
@@ -235,8 +238,36 @@ export const EmailDetailModal: React.FC<EmailDetailModalProps> = ({
   const [isAddingEvent, setIsAddingEvent] = useState(false);
   const [addedCalendarEvent, setAddedCalendarEvent] = useState<GoogleCalendarEvent | null>(null);
 
+  useEffect(() => {
+    if (email) setCurrentEmail(email);
+  }, [email]);
+
+  const activeEmail = currentEmail || email;
+
+  const handleReprocessEmail = async () => {
+    if (!activeEmail) return;
+    setIsReprocessing(true);
+    try {
+      const res = await fetch(`/api/emails/${activeEmail.id}/reprocess`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error('Reprocess request failed');
+      const data = await res.json();
+      if (data.email) {
+        setCurrentEmail(data.email);
+        onEmailUpdate?.(data.email);
+        setWorkspaceMessage('Email reprocessed via MailSentinel AI Pipeline v2.1.0');
+      }
+    } catch (e: any) {
+      setWorkspaceMessage(`Reprocessing failed: ${e.message}`);
+    } finally {
+      setIsReprocessing(false);
+    }
+  };
+
   // Detect event information from the email's AI analysis
-  const detectedEvent = useMemo(() => detectEventInformation(email), [email]);
+  const detectedEvent = useMemo(() => detectEventInformation(activeEmail), [activeEmail]);
 
   useEffect(() => {
     let isMounted = true;
@@ -510,6 +541,8 @@ ${email.bodySnippet || email.bodyText}
     }
   };
 
+  if (!email) return null;
+
   const isPhishing = email.securityAnalysis.classification === 'PHISHING';
   const isMalicious = email.securityAnalysis.classification === 'MALICIOUS';
   const isSuspicious = email.securityAnalysis.classification === 'SUSPICIOUS';
@@ -518,7 +551,7 @@ ${email.bodySnippet || email.bodyText}
   const handleGenerateReply = async () => {
     setIsGeneratingReply(true);
     try {
-      const res = await fetch('/api/gemini/draft-reply', {
+      const res = await apiFetch('/api/gemini/draft-reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -644,27 +677,52 @@ ${email.bodySnippet || email.bodyText}
             <div className="space-y-6">
               {/* AI Intelligence Card */}
               <div className="p-4 rounded-xl bg-gradient-to-br from-slate-900 to-indigo-950/30 border border-indigo-500/20 space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-indigo-400" />
                     <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-300">AI Intelligence Summary</h4>
-                  </div>
-                  {email.aiAnalysis.actionRequired && (
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                      Action Required
+                    <span className="text-[10px] text-slate-400 bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700/60 font-mono">
+                      v2.1.0
                     </span>
-                  )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {activeEmail.aiAnalysis.urgency && activeEmail.aiAnalysis.urgency !== 'None' && (
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${
+                        activeEmail.aiAnalysis.urgency === 'Critical'
+                          ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                          : activeEmail.aiAnalysis.urgency === 'High'
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                          : 'bg-slate-700/40 text-slate-300 border-slate-600/30'
+                      }`}>
+                        Urgency: {activeEmail.aiAnalysis.urgency}
+                      </span>
+                    )}
+                    {activeEmail.aiAnalysis.actionRequired && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        Action Required
+                      </span>
+                    )}
+                    <button
+                      onClick={handleReprocessEmail}
+                      disabled={isReprocessing}
+                      title="Reprocess email through AI Intelligence Pipeline"
+                      className="px-2 py-0.5 rounded text-[10px] font-medium text-indigo-300 hover:text-white bg-indigo-900/40 hover:bg-indigo-800/60 border border-indigo-700/50 flex items-center gap-1 transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isReprocessing ? 'animate-spin' : ''}`} />
+                      {isReprocessing ? 'Analyzing...' : 'Reprocess'}
+                    </button>
+                  </div>
                 </div>
 
                 <p className="text-sm text-slate-200 leading-relaxed font-medium">
-                  {email.aiAnalysis.summary}
+                  {activeEmail.aiAnalysis.summary}
                 </p>
 
                 {/* Priority Rationale */}
                 <div className="p-3 rounded-lg bg-slate-800/60 border border-slate-700/60 text-xs space-y-1">
-                  <span className="font-semibold text-slate-300">Why MailSentinel rated this {email.aiAnalysis.priority}:</span>
+                  <span className="font-semibold text-slate-300">Why MailSentinel rated this {activeEmail.aiAnalysis.priority}:</span>
                   <ul className="list-disc list-inside space-y-0.5 text-slate-400">
-                    {email.aiAnalysis.whyPriorityReasons.map((reason, idx) => (
+                    {activeEmail.aiAnalysis.whyPriorityReasons.map((reason, idx) => (
                       <li key={idx}>{reason}</li>
                     ))}
                   </ul>
@@ -676,26 +734,51 @@ ${email.bodySnippet || email.bodyText}
                     <span className="text-cyan-400 font-semibold uppercase text-[10px] tracking-wider block">
                       Recommended Next Step:
                     </span>
-                    <span className="text-slate-200 font-medium">{email.aiAnalysis.recommendedAction}</span>
+                    <span className="text-slate-200 font-medium">{activeEmail.aiAnalysis.recommendedAction}</span>
                   </div>
-                  {email.aiAnalysis.deadline && (
+                  {activeEmail.aiAnalysis.deadline && (
                     <div className="shrink-0 text-right">
                       <span className="text-[10px] text-amber-400 uppercase tracking-wider block font-semibold">
                         Deadline:
                       </span>
-                      <span className="text-amber-300 font-mono text-xs">{email.aiAnalysis.deadline}</span>
+                      <span className="text-amber-300 font-mono text-xs">{activeEmail.aiAnalysis.deadline}</span>
                     </div>
                   )}
                 </div>
 
+                {/* Extracted Actionable Tasks */}
+                {activeEmail.aiAnalysis.tasks && activeEmail.aiAnalysis.tasks.length > 0 && (
+                  <div className="p-3 rounded-lg bg-slate-800/60 border border-slate-700/60 text-xs space-y-2">
+                    <span className="font-semibold text-slate-300 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-purple-400" />
+                      Extracted Tasks ({activeEmail.aiAnalysis.tasks.length}):
+                    </span>
+                    <div className="space-y-1 pl-1">
+                      {activeEmail.aiAnalysis.tasks.map((task, idx) => (
+                        <div key={task.id || idx} className="flex items-start justify-between gap-2 text-slate-300">
+                          <div className="flex items-start gap-1.5">
+                            <span className="text-purple-400 mt-0.5">•</span>
+                            <span>{task.title}</span>
+                          </div>
+                          {task.dueDate && (
+                            <span className="text-[10px] text-amber-400 font-mono shrink-0">
+                              {task.dueDate}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Extracted Entities Grid */}
-                {email.aiAnalysis.extractedEntities.length > 0 && (
+                {activeEmail.aiAnalysis.extractedEntities.length > 0 && (
                   <div className="pt-2">
                     <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-2">
                       Extracted Entities & Structured Signals:
                     </span>
                     <div className="flex flex-wrap gap-2">
-                      {email.aiAnalysis.extractedEntities.map((ent, idx) => (
+                      {activeEmail.aiAnalysis.extractedEntities.map((ent, idx) => (
                         <div
                           key={idx}
                           className="px-2.5 py-1 rounded-lg bg-slate-800/90 border border-slate-700/80 text-xs text-slate-300 flex items-center gap-1.5"

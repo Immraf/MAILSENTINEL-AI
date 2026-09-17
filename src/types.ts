@@ -1,15 +1,29 @@
 export type EmailProvider = 'gmail' | 'outlook';
 
+export type AccountStatus =
+  | 'Connected'
+  | 'Syncing'
+  | 'Needs Reauthentication'
+  | 'Error'
+  | 'Disconnected'
+  | 'active'
+  | 'needs_reauth'
+  | 'syncing'
+  | 'error'
+  | 'disconnected';
+
 export interface EmailAccount {
   id: string;
   provider: EmailProvider;
   emailAddress: string;
   displayName: string;
-  status: 'active' | 'needs_reauth' | 'syncing' | 'error';
+  status: AccountStatus;
   lastSyncedAt: string;
   totalEmails: number;
   threatsDetected: number;
   isPrimary?: boolean;
+  unreadCount?: number;
+  errorMessage?: string;
 }
 
 export type EmailCategory =
@@ -112,6 +126,15 @@ export interface AIAnalysis {
   whyPriorityReasons: string[];
   confidence: number;
   eventInformation?: EventInformation | null;
+  urgency?: 'Critical' | 'High' | 'Medium' | 'Low' | 'None';
+  tasks?: Array<{ id: string; title: string; dueDate?: string | null; completed: boolean }>;
+  version?: string;
+  processedAt?: string;
+  notificationDecision?: {
+    shouldNotify: boolean;
+    channel: 'urgent' | 'standard' | 'silent';
+    reason: string;
+  };
 }
 
 export interface SecurityAnalysis {
@@ -146,8 +169,11 @@ export interface SecurityAnalysis {
 
 export interface Email {
   id: string;
+  providerMessageId?: string;
+  providerThreadId?: string;
   accountId: string;
   accountEmail: string;
+  userId?: string;
   provider: EmailProvider;
   threadId: string;
   sender: string;
@@ -155,11 +181,13 @@ export interface Email {
   senderDomain: string;
   recipients: string[];
   cc?: string[];
+  replyTo?: string;
   subject: string;
   bodySnippet: string;
   bodyText: string;
   bodyHtml?: string;
   receivedAt: string;
+  labels?: string[];
   isRead: boolean;
   isArchived: boolean;
   isQuarantined: boolean;
@@ -197,7 +225,12 @@ export interface SecurityRule {
   actionValue?: string;
   isEnabled?: boolean;
   isActive?: boolean;
+  enabled?: boolean;
   description?: string;
+  conditionField?: string;
+  conditionOperator?: string;
+  conditionValue?: string;
+  actionType?: string;
 }
 
 export type AutomationRule = SecurityRule;
@@ -230,6 +263,9 @@ export interface AuditLog {
     | 'BLACKLIST_UPDATED'
     | 'SECURITY_SETTING_CHANGED'
     | 'NOTIFICATION_SENT'
+    | 'NOTIFICATION_DELIVERED'
+    | 'WHATSAPP_OPT_IN_CONFIRMED'
+    | 'WHATSAPP_OPT_IN_REVOKED'
     | 'AI_QUERY'
     | 'ACTION_CONFIRMED';
   description: string;
@@ -241,11 +277,77 @@ export interface AuditLog {
 
 export type AuditLogEntry = AuditLog;
 
+export type NotificationChannel =
+  | 'browser_push'
+  | 'mobile_push'
+  | 'desktop'
+  | 'whatsapp'
+  | 'daily_digest';
+
+export type NotificationDeliveryStatus =
+  | 'pending'
+  | 'queued'
+  | 'sent'
+  | 'delivered'
+  | 'read'
+  | 'failed'
+  | 'suppressed';
+
+export interface NotificationItem {
+  id: string;
+  userId: string;
+  emailId?: string;
+  threadId?: string;
+  title: string;
+  body: string;
+  priority: PriorityLevel;
+  securityClassification?: string;
+  securityRiskScore?: number;
+  isSecurityAlert: boolean;
+  actionRequired: boolean;
+  deadline?: string | null;
+  category?: string;
+  decisionReasons: string[];
+  read: boolean;
+  createdAt: string;
+}
+
+export interface NotificationDeliveryItem {
+  id: string;
+  notificationId: string;
+  userId: string;
+  emailId?: string;
+  threadId?: string;
+  channel: NotificationChannel;
+  status: NotificationDeliveryStatus;
+  createdAt: string;
+  wamid?: string;
+  queuedAt?: string;
+  sentAt?: string;
+  deliveredAt?: string;
+  readAt?: string;
+  failedAt?: string;
+  failureCode?: number | string;
+  failureReason?: string;
+  error?: string;
+  reason?: string;
+  payload?: any;
+}
+
 export interface NotificationSettings {
   pushEnabled: boolean;
+  browserPushEnabled?: boolean;
+  mobilePushEnabled?: boolean;
+  desktopEnabled?: boolean;
   whatsappEnabled: boolean;
+  whatsappOptIn?: boolean;
+  whatsappOptInTimestamp?: string;
+  whatsappOptInSource?: string;
+  whatsappThreshold?: PriorityLevel;
   whatsappNumber?: string;
   whatsappPhone?: string;
+  whatsappVerified?: boolean;
+  whatsappTemplateName?: string;
   webPushEnabled?: boolean;
   dailyDigestEnabled?: boolean;
   dailyDigestTime?: string;
@@ -261,13 +363,19 @@ export interface NotificationSettings {
   triggers?: {
     critical?: boolean;
     high?: boolean;
+    medium?: boolean;
+    low?: boolean;
     threats?: boolean;
     deadlines?: boolean;
+    actionRequired?: boolean;
     quarantine?: boolean;
     summary?: boolean;
   };
-  minimumPriorityForPush?: 'Critical' | 'High' | 'Medium';
-  minimumPriorityForWhatsApp?: 'Critical' | 'High';
+  minPriorityLevel?: PriorityLevel;
+  minimumPriorityForPush?: PriorityLevel;
+  minimumPriorityForWhatsApp?: PriorityLevel;
+  minimumPriorityForDesktop?: PriorityLevel;
+  threadDeduplicationWindowMinutes?: number;
 }
 
 export type NotificationConfig = NotificationSettings;
@@ -278,12 +386,27 @@ export function normalizeNotificationConfig(raw?: Partial<NotificationConfig> | 
   const quietEnd = raw?.quietHours?.end || raw?.quietHoursEnd || '07:00';
   const allowCritical = raw?.quietHours?.allowCriticalSecurity ?? true;
 
+  const rawThreshold = raw?.whatsappThreshold || raw?.minimumPriorityForWhatsApp || 'Critical';
+  const validThreshold: PriorityLevel =
+    rawThreshold === 'Critical' || rawThreshold === 'High' || rawThreshold === 'Medium' || rawThreshold === 'Low'
+      ? rawThreshold
+      : 'Critical';
+
   return {
     pushEnabled: raw?.pushEnabled ?? true,
+    browserPushEnabled: raw?.browserPushEnabled ?? raw?.pushEnabled ?? raw?.webPushEnabled ?? true,
+    mobilePushEnabled: raw?.mobilePushEnabled ?? false,
+    desktopEnabled: raw?.desktopEnabled ?? true,
     whatsappEnabled: raw?.whatsappEnabled ?? false,
+    whatsappOptIn: raw?.whatsappOptIn ?? false,
+    whatsappOptInTimestamp: raw?.whatsappOptInTimestamp,
+    whatsappOptInSource: raw?.whatsappOptInSource || 'web_ui',
+    whatsappThreshold: validThreshold,
     whatsappPhone: raw?.whatsappPhone || raw?.whatsappNumber || '',
     whatsappNumber: raw?.whatsappNumber || raw?.whatsappPhone || '',
-    webPushEnabled: raw?.webPushEnabled ?? true,
+    whatsappVerified: raw?.whatsappVerified ?? false,
+    whatsappTemplateName: raw?.whatsappTemplateName,
+    webPushEnabled: raw?.webPushEnabled ?? raw?.browserPushEnabled ?? raw?.pushEnabled ?? true,
     dailyDigestEnabled: raw?.dailyDigestEnabled ?? true,
     dailyDigestTime: raw?.dailyDigestTime || '08:00',
     quietHoursEnabled: quietEnabled,
@@ -298,13 +421,19 @@ export function normalizeNotificationConfig(raw?: Partial<NotificationConfig> | 
     triggers: {
       critical: raw?.triggers?.critical ?? true,
       high: raw?.triggers?.high ?? true,
+      medium: raw?.triggers?.medium ?? false,
+      low: raw?.triggers?.low ?? false,
       threats: raw?.triggers?.threats ?? true,
       deadlines: raw?.triggers?.deadlines ?? true,
+      actionRequired: raw?.triggers?.actionRequired ?? true,
       quarantine: raw?.triggers?.quarantine ?? true,
       summary: raw?.triggers?.summary ?? false,
     },
+    minPriorityLevel: raw?.minPriorityLevel || raw?.minimumPriorityForPush || 'High',
     minimumPriorityForPush: raw?.minimumPriorityForPush || 'High',
     minimumPriorityForWhatsApp: raw?.minimumPriorityForWhatsApp || 'Critical',
+    minimumPriorityForDesktop: raw?.minimumPriorityForDesktop || 'High',
+    threadDeduplicationWindowMinutes: raw?.threadDeduplicationWindowMinutes ?? 60,
   };
 }
 
@@ -331,13 +460,48 @@ export interface ExtractedTask {
   category: string;
 }
 
+export interface GroundedCitation {
+  id: string;
+  subject: string;
+  senderName: string;
+  senderEmail: string;
+  accountEmail: string;
+  date: string;
+  priority: PriorityLevel;
+  securityClassification: SecurityClassification;
+  securityRiskScore?: number;
+  snippet: string;
+  relevanceScore: number;
+  whyMatched: string;
+  actionRequired: boolean;
+  deadline?: string | null;
+  recommendedAction?: string;
+  category?: string;
+}
+
+export interface RAGRetrievalMetadata {
+  totalSearched: number;
+  matchedCount: number;
+  rerankedCount: number;
+  intentCategory: string;
+  executionTimeMs: number;
+  modelUsed: string;
+  embeddingsUsed: boolean;
+  userAuthenticated: boolean;
+  userEmail: string;
+  promptInjectionDefended?: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   sender: 'user' | 'assistant';
   text: string;
   timestamp: string;
   citedEmailIds?: string[];
+  citedEmails?: GroundedCitation[];
   isSecurityWarning?: boolean;
+  retrievalMetadata?: RAGRetrievalMetadata;
+  suggestedFollowUps?: string[];
 }
 
 export interface GoogleCalendarEvent {
@@ -387,4 +551,15 @@ export type PriorityQuadrant =
   | 'IMPORTANT_NOT_URGENT'
   | 'URGENT_NOT_IMPORTANT'
   | 'NORMAL';
+
+export interface AuthUser {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL?: string | null;
+  emailVerified: boolean;
+  isDemo?: boolean;
+}
+
+export * from './types/firestore';
 

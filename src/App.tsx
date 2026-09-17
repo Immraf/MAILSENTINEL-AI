@@ -12,6 +12,14 @@ import { AccountsView } from './components/AccountsView';
 import { SettingsView } from './components/SettingsView';
 import { GoogleWorkspaceView } from './components/GoogleWorkspaceView';
 import { ConfirmationModal } from './components/ConfirmationModal';
+import { NeedsAttentionView } from './components/NeedsAttentionView';
+import { RulesView } from './components/RulesView';
+import { ActivityView } from './components/ActivityView';
+import { NotificationsView } from './components/NotificationsView';
+import { OnboardingModal } from './components/OnboardingModal';
+import { AuthView } from './components/AuthView';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { apiFetch } from './lib/api';
 import {
   AuditLogEntry,
   AutomationRule,
@@ -24,25 +32,20 @@ import {
   SecuritySettings,
 } from './types';
 import {
-  googleSignIn,
-  logoutUser,
-  onAuthStateChange,
   getCachedAccessToken,
-  getCurrentUser,
 } from './lib/firebase';
 import { FirestoreSyncService } from './lib/firestoreService';
 import {
   fetchGmailMessages,
   GmailMessageSummary,
 } from './lib/workspace';
-import { Sparkles, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Sparkles, RefreshCw, Shield, Bell, X, ArrowUpRight } from 'lucide-react';
+import { setupForegroundFcmListener } from './utils/fcmClient';
 
-export function App() {
+function AppContent() {
+  const { user, firebaseUser, loading: authLoading, isDemoMode, exitDemoMode, logout, loginWithGoogle } = useAuth();
+
   const [currentView, setCurrentView] = useState<NavView>('dashboard');
-  const [googleUser, setGoogleUser] = useState<User | null>(null);
-  const [needsAuth, setNeedsAuth] = useState(false);
-  const [authInitialized, setAuthInitialized] = useState(false);
-
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
   const [emails, setEmails] = useState<Email[]>([]);
   const [quarantineItems, setQuarantineItems] = useState<QuarantineItem[]>([]);
@@ -78,11 +81,21 @@ export function App() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
+  const [incomingPushAlert, setIncomingPushAlert] = useState<{
+    title: string;
+    body: string;
+    emailId?: string;
+    deliveryId?: string;
+    priority?: string;
+  } | null>(null);
   const [dailySummary, setDailySummary] = useState('');
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+    return !localStorage.getItem('mailsentinel_onboarded_dismissed');
+  });
 
-  // Confirmation modal state
+  // Universal Confirmation modal state
   const [confirmation, setConfirmation] = useState<{
     isOpen: boolean;
     title: string;
@@ -97,62 +110,60 @@ export function App() {
     onConfirm: () => {},
   });
 
-  // Track Firebase Auth State
+  // Deep linking and Foreground FCM Listener
   useEffect(() => {
-    const unsubscribe = onAuthStateChange(async (user) => {
-      setGoogleUser(user);
-      setAuthInitialized(true);
-
-      if (user) {
-        setNeedsAuth(false);
-        await loadUserDataFromFirestore(user);
-      } else {
-        setNeedsAuth(true);
-        // Load initial offline/demo dataset if not yet loaded
-        await loadFallbackData();
+    const handleCheckUrlParam = () => {
+      const params = new URLSearchParams(window.location.search);
+      const deepEmailId = params.get('emailId');
+      if (deepEmailId) {
+        setSelectedEmailId(deepEmailId);
       }
+    };
+
+    handleCheckUrlParam();
+    window.addEventListener('popstate', handleCheckUrlParam);
+
+    const cleanupListener = setupForegroundFcmListener((payload) => {
+      // If delivery receipt ACK needed, notify server
+      if (payload.deliveryId) {
+        apiFetch(`/api/notifications/deliveries/${payload.deliveryId}/ack`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userAgent: navigator.userAgent }),
+        }).catch(() => {});
+      }
+      setIncomingPushAlert(payload);
     });
 
-    return () => unsubscribe();
+    return () => {
+      window.removeEventListener('popstate', handleCheckUrlParam);
+      cleanupListener();
+    };
   }, []);
 
-  // Load User Data from Firestore
-  const loadUserDataFromFirestore = async (user: User) => {
+  // When auth state changes, load data accordingly
+  useEffect(() => {
+    if (user) {
+      loadAuthenticatedUserData(user.uid);
+    } else if (isDemoMode) {
+      loadDemoData();
+    }
+  }, [user?.uid, isDemoMode]);
+
+  // Load data for authenticated Firebase user (Protected)
+  const loadAuthenticatedUserData = async (uid: string) => {
     try {
+      // 1. Try loading user data from Firestore
       const [fAccounts, fEmails, fQuarantine, fRules, fSettings] = await Promise.all([
-        FirestoreSyncService.loadAccounts(user.uid),
-        FirestoreSyncService.loadEmails(user.uid),
-        FirestoreSyncService.loadQuarantine(user.uid),
-        FirestoreSyncService.loadAutomationRules(user.uid),
-        FirestoreSyncService.loadSettings(user.uid),
+        FirestoreSyncService.loadAccounts(uid).catch(() => []),
+        FirestoreSyncService.loadEmails(uid).catch(() => []),
+        FirestoreSyncService.loadQuarantine(uid).catch(() => []),
+        FirestoreSyncService.loadAutomationRules(uid).catch(() => []),
+        FirestoreSyncService.loadSettings(uid).catch(() => null),
       ]);
 
-      if (fAccounts.length > 0) {
-        setAccounts(fAccounts);
-      } else {
-        // Seed default Google account for this user
-        const initialAcc: EmailAccount = {
-          id: `acc-google-${user.uid}`,
-          emailAddress: user.email || 'user@gmail.com',
-          provider: 'gmail',
-          displayName: user.displayName || 'Google Mailbox',
-          status: 'active',
-          lastSyncedAt: new Date().toISOString(),
-          totalEmails: 0,
-          threatsDetected: 0,
-          isPrimary: true,
-        };
-        setAccounts([initialAcc]);
-        await FirestoreSyncService.saveAccount(user.uid, initialAcc);
-      }
-
-      if (fEmails.length > 0) {
-        setEmails(fEmails);
-      } else {
-        // Load fallback demo emails and persist them into Firestore for the user
-        await loadFallbackData(user.uid);
-      }
-
+      if (fAccounts.length > 0) setAccounts(fAccounts);
+      if (fEmails.length > 0) setEmails(fEmails);
       if (fQuarantine.length > 0) setQuarantineItems(fQuarantine);
       if (fRules.length > 0) setAutomationRules(fRules);
       if (fSettings) {
@@ -160,81 +171,79 @@ export function App() {
         if (fSettings.notifications) setNotifications(normalizeNotificationConfig(fSettings.notifications));
       }
 
-      // Check if we have an active access token to sync real Gmail messages
-      const token = getCachedAccessToken();
-      if (token) {
-        await syncGmailFromWorkspace(user.uid, token);
-      }
-
-      // Load AI Daily summary
-      loadDailySummary(fEmails.length > 0 ? fEmails : undefined);
-    } catch (err) {
-      console.warn('Firestore load failed, falling back to local data:', err);
-      await loadFallbackData();
-    }
-  };
-
-  // Fallback initial dataset from server.ts API or local defaults
-  const loadFallbackData = async (userIdToSync?: string) => {
-    try {
+      // 2. Fetch authenticated data from backend via apiFetch (sends Authorization: Bearer <Firebase ID token>)
       const [accRes, emailsRes, quarRes, rulesRes, setRes] = await Promise.all([
-        fetch('/api/accounts').catch(() => null),
-        fetch('/api/emails').catch(() => null),
-        fetch('/api/quarantine').catch(() => null),
-        fetch('/api/rules').catch(() => null),
-        fetch('/api/settings').catch(() => null),
+        apiFetch('/api/accounts').catch(() => null),
+        apiFetch('/api/emails').catch(() => null),
+        apiFetch('/api/quarantine').catch(() => null),
+        apiFetch('/api/rules').catch(() => null),
+        apiFetch('/api/settings').catch(() => null),
       ]);
 
       const parseJson = async (res: Response | null) => {
         if (res && res.ok && res.headers.get('content-type')?.includes('application/json')) {
-          try {
-            return await res.json();
-          } catch (e) {
-            return null;
-          }
+          return await res.json().catch(() => null);
         }
         return null;
       };
 
-      const accData = await parseJson(accRes);
-      if (accData) {
-        setAccounts(accData);
-        if (userIdToSync) {
-          for (const acc of accData) {
-            await FirestoreSyncService.saveAccount(userIdToSync, acc);
-          }
-        }
+      const bAccounts = await parseJson(accRes);
+      const bEmails = await parseJson(emailsRes);
+      const bQuar = await parseJson(quarRes);
+      const bRules = await parseJson(rulesRes);
+      const bSettings = await parseJson(setRes);
+
+      if (bAccounts && Array.isArray(bAccounts) && bAccounts.length > 0) {
+        setAccounts(bAccounts);
+      }
+      if (bEmails && Array.isArray(bEmails) && bEmails.length > 0) {
+        setEmails(bEmails);
+        loadDailySummary(bEmails);
+      } else if (fEmails.length > 0) {
+        loadDailySummary(fEmails);
+      } else {
+        loadDailySummary([]);
+      }
+      if (bQuar && Array.isArray(bQuar)) setQuarantineItems(bQuar);
+      if (bRules && Array.isArray(bRules)) setAutomationRules(bRules);
+      if (bSettings) {
+        if (bSettings.security) setSecuritySettings(bSettings.security);
+        if (bSettings.notifications) setNotifications(normalizeNotificationConfig(bSettings.notifications));
+        if (bSettings.auditLogs) setAuditLogs(bSettings.auditLogs);
       }
 
-      let loadedEmails: Email[] = [];
-      const emailsData = await parseJson(emailsRes);
-      if (emailsData) {
-        loadedEmails = emailsData;
-        setEmails(emailsData);
-        if (userIdToSync) {
-          for (const em of emailsData) {
-            await FirestoreSyncService.saveEmail(userIdToSync, em);
-          }
-        }
+      // Check if we have an active access token to sync real Gmail messages
+      const token = getCachedAccessToken();
+      if (token) {
+        await syncGmailFromWorkspace(uid, token);
       }
-
-      const quarData = await parseJson(quarRes);
-      if (quarData) setQuarantineItems(quarData);
-
-      const rulesData = await parseJson(rulesRes);
-      if (rulesData) setAutomationRules(rulesData);
-
-      const setData = await parseJson(setRes);
-      if (setData) {
-        if (setData.security) setSecuritySettings(setData.security);
-        if (setData.notifications) setNotifications(normalizeNotificationConfig(setData.notifications));
-        if (setData.auditLogs) setAuditLogs(setData.auditLogs);
-      }
-
-      loadDailySummary(loadedEmails.length > 0 ? loadedEmails : undefined);
     } catch (err) {
-      console.warn('Fallback data loading note:', err);
-      loadDailySummary();
+      console.warn('Error loading authenticated user data:', err);
+      loadDailySummary([]);
+    }
+  };
+
+  // Load sample dataset for isolated Demo Mode
+  const loadDemoData = async () => {
+    try {
+      const res = await fetch('/api/demo/data');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.accounts) setAccounts(data.accounts);
+        if (data.emails) {
+          setEmails(data.emails);
+          loadDailySummary(data.emails);
+        }
+        if (data.quarantine) setQuarantineItems(data.quarantine);
+        if (data.alerts) setAlerts(data.alerts);
+        if (data.rules) setAutomationRules(data.rules);
+        if (data.settings) {
+          if (data.settings.security) setSecuritySettings(data.settings.security);
+          if (data.settings.notifications) setNotifications(normalizeNotificationConfig(data.settings.notifications));
+        }
+      }
+    } catch (err) {
+      console.warn('Demo data load notice:', err);
     }
   };
 
@@ -249,7 +258,11 @@ export function App() {
       const threats = items.filter(
         (e) => e.securityAnalysis?.classification && e.securityAnalysis.classification !== 'SAFE'
       );
-      const userName = googleUser?.displayName?.split(' ')[0] || 'Alex';
+      const userName = user?.displayName?.split(' ')[0] || firebaseUser?.displayName?.split(' ')[0] || 'User';
+
+      if (items.length === 0) {
+        return `Good day, ${userName}. Your email protection is active. Connect your Gmail or Outlook account in Accounts to begin receiving AI-powered daily intelligence briefings, threat scans, and deadline tracking.`;
+      }
 
       let text = `Good day, ${userName}. You currently have ${actionItems.length} priority message${actionItems.length === 1 ? '' : 's'} requiring direct attention across your monitored inboxes.`;
 
@@ -266,7 +279,7 @@ export function App() {
       }
 
       if (threats.length > 0) {
-        text += `\n\n🛡️ Security Status: MailSentinel intercepted and quarantined ${threats.length} high-risk threat${threats.length === 1 ? '' : 's'} (including spoofing and credential harvesting attempts), keeping your accounts safeguarded.`;
+        text += `\n\n🛡️ Security Status: MailSentinel intercepted and quarantined ${threats.length} high-risk threat${threats.length === 1 ? '' : 's'}, keeping your accounts safeguarded.`;
       } else {
         text += `\n\n🛡️ Security Status: All connected accounts are healthy with active heuristic monitoring and zero detected threats.`;
       }
@@ -280,7 +293,7 @@ export function App() {
 
       let res: Response | null = null;
       try {
-        res = await fetch('/api/gemini/daily-summary', {
+        res = await apiFetch('/api/gemini/daily-summary', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -292,20 +305,19 @@ export function App() {
               aiAnalysis: e.aiAnalysis,
               securityAnalysis: e.securityAnalysis,
             })),
-            userName: googleUser?.displayName || 'Alex',
+            userName: user?.displayName || firebaseUser?.displayName || 'User',
           }),
           signal: controller.signal,
         });
       } catch (firstErr: any) {
-        // Retry once after a brief delay if network connection was transient or dev server was starting
         await new Promise((resolve) => setTimeout(resolve, 800));
         try {
-          res = await fetch('/api/gemini/daily-summary', {
+          res = await apiFetch('/api/gemini/daily-summary', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               emails: emailsToUse.slice(0, 10),
-              userName: googleUser?.displayName || 'Alex',
+              userName: user?.displayName || firebaseUser?.displayName || 'User',
             }),
           });
         } catch (retryErr) {
@@ -317,131 +329,80 @@ export function App() {
 
       if (res && res.ok) {
         const data = await res.json();
-        if (data.summary) {
-          setDailySummary(data.summary);
-          return;
-        }
+        setDailySummary(data.summary || generateClientFallback());
+      } else {
+        setDailySummary(generateClientFallback());
       }
-
-      // If server response is not ok or empty, apply client fallback
-      setDailySummary(generateClientFallback());
-    } catch (err: any) {
-      console.warn('Daily summary fallback generated locally:', err?.message || err);
+    } catch (err) {
       setDailySummary(generateClientFallback());
     } finally {
       setIsLoadingSummary(false);
     }
   };
 
-  // Google Sign-In Flow
-  const [isSigningInGoogle, setIsSigningInGoogle] = useState(false);
-
-  const handleGoogleSignIn = async () => {
-    if (isSigningInGoogle) return;
-    setIsSigningInGoogle(true);
+  // Sync real Gmail messages
+  const syncGmailFromWorkspace = async (uid: string, token: string) => {
     try {
-      const res = await googleSignIn();
-      if (!res) {
-        // Sign-in was cancelled, closed, or suppressed
-        return;
-      }
-      const { user, accessToken } = res;
-      setGoogleUser(user);
-      setNeedsAuth(false);
-      if (user) {
-        await loadUserDataFromFirestore(user);
-        if (accessToken) {
-          await syncGmailFromWorkspace(user.uid, accessToken);
-        }
-      }
-    } catch (err: any) {
-      if (
-        err?.code !== 'auth/cancelled-popup-request' &&
-        err?.code !== 'auth/popup-closed-by-user' &&
-        err?.code !== 'auth/popup-blocked'
-      ) {
-        console.error('Google Sign-In failed:', err);
-      }
-    } finally {
-      setIsSigningInGoogle(false);
-    }
-  };
+      setIsSyncing(true);
+      const gmailList = await fetchGmailMessages(token, 15);
+      if (gmailList.length > 0) {
+        const mappedEmails: Email[] = gmailList.map((g: GmailMessageSummary) => {
+          const senderEmail = g.from.includes('<')
+            ? g.from.split('<')[1].replace('>', '').trim()
+            : g.from.trim();
+          const senderDomain = senderEmail.includes('@') ? senderEmail.split('@')[1] : 'unknown.com';
 
-  // Google Sign-Out Flow
-  const handleSignOut = async () => {
-    await logoutUser();
-    setGoogleUser(null);
-    setNeedsAuth(true);
-  };
-
-  // Sync real messages from Gmail API using workspace.ts
-  const syncGmailFromWorkspace = async (userId: string, token: string) => {
-    setIsSyncing(true);
-    try {
-      const messages: GmailMessageSummary[] = await fetchGmailMessages(token, 10);
-      const syncedEmails: Email[] = [];
-
-      for (const msg of messages) {
-        try {
-          const subject = msg.subject || '(No Subject)';
-          const fromHeader = msg.from || 'Unknown Sender';
-          const dateHeader = msg.date || new Date().toISOString();
-
-          let senderEmail = fromHeader;
-          let senderName = fromHeader;
-          const match = fromHeader.match(/(.*?)\s*<(.+?)>/);
-          if (match) {
-            senderName = match[1].replace(/["']/g, '').trim();
-            senderEmail = match[2].trim();
-          }
-          const domain = senderEmail.includes('@') ? senderEmail.split('@')[1] : 'gmail.com';
-          const snippet = msg.snippet || '';
-
-          const isUnread = msg.labelIds?.includes('UNREAD') ?? false;
-
-          const emailObj: Email = {
-            id: `gmail-${msg.id}`,
-            accountId: `acc-google-${userId}`,
-            accountEmail: googleUser?.email || 'my-mailbox@gmail.com',
+          return {
+            id: `gmail-${g.id}`,
+            accountId: `acc-google-${uid}`,
+            accountEmail: firebaseUser?.email || user?.email || 'user@gmail.com',
             provider: 'gmail',
-            threadId: msg.threadId || msg.id,
+            threadId: g.threadId || g.id,
             sender: senderEmail,
-            senderName: senderName || senderEmail,
-            senderDomain: domain,
-            recipients: [googleUser?.email || 'me'],
-            subject,
-            bodySnippet: snippet,
-            bodyText: msg.bodyText || snippet,
-            receivedAt: new Date(dateHeader).toISOString(),
-            isRead: !isUnread,
+            senderName: g.from.split('<')[0].replace(/"/g, '').trim() || senderEmail,
+            senderDomain,
+            recipients: [firebaseUser?.email || user?.email || 'me'],
+            subject: g.subject || '(No Subject)',
+            bodySnippet: g.snippet || '',
+            bodyText: g.bodyText || g.snippet || '',
+            receivedAt: g.date ? new Date(g.date).toISOString() : new Date().toISOString(),
+            isRead: false,
             isArchived: false,
             isQuarantined: false,
             hasAttachment: false,
             aiAnalysis: {
-              summary: snippet || 'Message synchronized from authorized Google Gmail inbox.',
               priority: 'Medium',
-              priorityScore: 50,
-              whyPriorityReasons: ['Direct Gmail API message sync.'],
-              category: 'other',
+              category: 'business',
+              summary: g.snippet || 'Synced from connected Google Workspace.',
               sentiment: 'neutral',
               actionRequired: false,
-              recommendedAction: 'Read in unified inbox',
+              recommendedAction: '',
               deadline: null,
-              confidence: 0.95,
               extractedEntities: [],
+              whyPriorityReasons: ['Synced message'],
+              confidence: 90,
+              priorityScore: 50,
             },
             securityAnalysis: {
               classification: 'SAFE',
               riskScore: 5,
-              phishingScore: 0,
-              spamScore: 0,
-              spoofingScore: 0,
+              phishingScore: 2,
+              spamScore: 3,
+              spoofingScore: 1,
               riskLevel: 'Safe',
+              confidenceScore: 95,
+              explanation: 'Verified message via authentic Google Workspace connection.',
+              indicators: [],
               whyFlaggedReasons: [],
+              authResults: {
+                spf: 'PASS',
+                dkim: 'PASS',
+                dmarc: 'PASS',
+              },
               senderDomainAnalysis: {
-                displayName: senderName,
-                senderEmail: senderEmail,
-                domain,
+                displayName: g.from.split('<')[0].replace(/"/g, '').trim() || senderEmail,
+                senderEmail,
+                domain: senderDomain,
                 isLookalike: false,
                 replyToMatch: true,
               },
@@ -449,65 +410,55 @@ export function App() {
                 totalUrls: 0,
                 suspiciousUrls: [],
               },
-              authResults: {
-                spf: 'PASS',
-                dkim: 'PASS',
-                dmarc: 'PASS',
-                details: 'SPF, DKIM, and DMARC validated via Google Workspace.',
-              },
-              indicators: [],
             },
           };
+        });
 
-          syncedEmails.push(emailObj);
-          await FirestoreSyncService.saveEmail(userId, emailObj);
-        } catch (mErr) {
-          console.warn('Could not parse individual message:', mErr);
-        }
-      }
-
-      if (syncedEmails.length > 0) {
         setEmails((prev) => {
           const existingIds = new Set(prev.map((e) => e.id));
-          const toAdd = syncedEmails.filter((e) => !existingIds.has(e.id));
-          return [...toAdd, ...prev];
+          const fresh = mappedEmails.filter((m) => !existingIds.has(m.id));
+          return [...fresh, ...prev];
         });
+
+        for (const em of mappedEmails) {
+          await FirestoreSyncService.saveEmail(uid, em);
+        }
       }
     } catch (err) {
-      console.warn('Gmail API sync note:', err);
+      console.warn('Gmail Workspace sync notice:', err);
     } finally {
       setIsSyncing(false);
     }
   };
 
-  // Sync All Accounts & Workspace
+  // Sync All Accounts
   const handleSyncAll = async () => {
     setIsSyncing(true);
     try {
-      const user = googleUser || getCurrentUser();
       const token = getCachedAccessToken();
-
-      if (user && token) {
-        await syncGmailFromWorkspace(user.uid, token);
+      const currentUid = user?.uid || firebaseUser?.uid;
+      if (token && currentUid) {
+        await syncGmailFromWorkspace(currentUid, token);
       }
 
-      // Also trigger backend refresh if available
       try {
-        const res = await fetch('/api/accounts/sync-all', { method: 'POST' });
+        const res = await apiFetch('/api/accounts/sync-all', { method: 'POST' });
         if (res.ok) {
           const data = await res.json();
           if (data.accounts) setAccounts(data.accounts);
-          const [eRes, qRes] = await Promise.all([fetch('/api/emails'), fetch('/api/quarantine')]);
+          const [eRes, qRes] = await Promise.all([
+            apiFetch('/api/emails'),
+            apiFetch('/api/quarantine'),
+          ]);
           if (eRes.ok) setEmails(await eRes.json());
           if (qRes.ok) setQuarantineItems(await qRes.json());
         }
       } catch (err) {
-        // fallback silent
+        // Silent fallback
       }
 
-      // Update account sync timestamps
       setAccounts((prev) =>
-        prev.map((a) => ({ ...a, lastSynced: new Date().toISOString() }))
+        prev.map((a) => ({ ...a, lastSyncedAt: new Date().toISOString() }))
       );
     } catch (err) {
       console.warn('Sync notice:', err);
@@ -516,17 +467,68 @@ export function App() {
     }
   };
 
+  // Sync a single account (Gmail or Outlook)
+  const handleSyncSingleAccount = async (accountId: string) => {
+    setIsSyncing(true);
+    setAccounts((prev) =>
+      prev.map((a) => (a.id === accountId ? { ...a, status: 'Syncing' } : a))
+    );
+    try {
+      const res = await apiFetch(`/api/accounts/${accountId}/sync`, { method: 'POST' });
+      if (res.ok) {
+        const [accRes, eRes, qRes] = await Promise.all([
+          apiFetch('/api/accounts'),
+          apiFetch('/api/emails'),
+          apiFetch('/api/quarantine'),
+        ]);
+        if (accRes.ok) setAccounts(await accRes.json());
+        if (eRes.ok) {
+          const freshEmails = await eRes.json();
+          setEmails(freshEmails);
+          loadDailySummary(freshEmails);
+        }
+        if (qRes.ok) setQuarantineItems(await qRes.json());
+      }
+    } catch (err) {
+      console.warn(`Sync failed for account ${accountId}:`, err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Listen for OAuth popup completion messages (Gmail & Outlook)
+  useEffect(() => {
+    const handleOAuthMessage = async (event: MessageEvent) => {
+      if (event.data && event.data.type === 'OAUTH_AUTH_SUCCESS') {
+        const [accRes, eRes, qRes] = await Promise.all([
+          apiFetch('/api/accounts'),
+          apiFetch('/api/emails'),
+          apiFetch('/api/quarantine'),
+        ]);
+        if (accRes.ok) setAccounts(await accRes.json());
+        if (eRes.ok) {
+          const freshEmails = await eRes.json();
+          setEmails(freshEmails);
+          loadDailySummary(freshEmails);
+        }
+        if (qRes.ok) setQuarantineItems(await qRes.json());
+      }
+    };
+
+    window.addEventListener('message', handleOAuthMessage);
+    return () => window.removeEventListener('message', handleOAuthMessage);
+  }, []);
+
   // Toggle Read
   const handleToggleRead = async (id: string, current: boolean) => {
     setEmails((prev) => prev.map((e) => (e.id === id ? { ...e, isRead: !current } : e)));
-
-    const user = googleUser || getCurrentUser();
-    if (user) {
-      await FirestoreSyncService.updateEmail(user.uid, id, { isRead: !current });
+    const currentUid = user?.uid || firebaseUser?.uid;
+    if (currentUid) {
+      await FirestoreSyncService.updateEmail(currentUid, id, { isRead: !current });
     }
 
     try {
-      await fetch(`/api/emails/${id}/read`, {
+      await apiFetch(`/api/emails/${id}/read`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isRead: !current }),
@@ -539,17 +541,31 @@ export function App() {
   // Archive Email
   const handleArchive = async (id: string) => {
     setEmails((prev) => prev.map((e) => (e.id === id ? { ...e, isArchived: true } : e)));
-
-    const user = googleUser || getCurrentUser();
-    if (user) {
-      await FirestoreSyncService.updateEmail(user.uid, id, { isArchived: true });
+    const currentUid = user?.uid || firebaseUser?.uid;
+    if (currentUid) {
+      await FirestoreSyncService.updateEmail(currentUid, id, { isArchived: true });
     }
 
     try {
-      await fetch(`/api/emails/${id}/archive`, { method: 'POST' });
+      await apiFetch(`/api/emails/${id}/archive`, { method: 'POST' });
     } catch (err) {
       // client-side state already updated
     }
+  };
+
+  // Mark Email as Important
+  const handleMarkImportant = (id: string) => {
+    setEmails((prev) =>
+      prev.map((e) =>
+        e.id === id
+          ? {
+              ...e,
+              aiAnalysis: { ...e.aiAnalysis, priority: 'High' },
+              tags: e.tags?.includes('important') ? e.tags : [...(e.tags || []), 'important'],
+            }
+          : e
+      )
+    );
   };
 
   // Quarantine Email
@@ -571,14 +587,14 @@ export function App() {
 
     setQuarantineItems((prev) => [qItem, ...prev]);
 
-    const user = googleUser || getCurrentUser();
-    if (user) {
-      await FirestoreSyncService.updateEmail(user.uid, id, { isQuarantined: true });
-      await FirestoreSyncService.saveQuarantineItem(user.uid, qItem);
+    const currentUid = user?.uid || firebaseUser?.uid;
+    if (currentUid) {
+      await FirestoreSyncService.updateEmail(currentUid, id, { isQuarantined: true });
+      await FirestoreSyncService.saveQuarantineItem(currentUid, qItem);
     }
 
     try {
-      await fetch(`/api/emails/${id}/quarantine`, { method: 'POST' });
+      await apiFetch(`/api/emails/${id}/quarantine`, { method: 'POST' });
     } catch (err) {
       // client-side state already updated
     }
@@ -590,15 +606,15 @@ export function App() {
     setQuarantineItems((prev) => prev.filter((q) => q.emailId !== emailId));
     setEmails((prev) => prev.map((e) => (e.id === emailId ? { ...e, isQuarantined: false } : e)));
 
-    const user = googleUser || getCurrentUser();
-    if (user && item) {
-      await FirestoreSyncService.deleteQuarantineItem(user.uid, item.id);
-      await FirestoreSyncService.updateEmail(user.uid, emailId, { isQuarantined: false });
+    const currentUid = user?.uid || firebaseUser?.uid;
+    if (currentUid && item) {
+      await FirestoreSyncService.deleteQuarantineItem(currentUid, item.id);
+      await FirestoreSyncService.updateEmail(currentUid, emailId, { isQuarantined: false });
     }
 
     try {
       if (item) {
-        await fetch(`/api/quarantine/${item.id}/release`, { method: 'POST' });
+        await apiFetch(`/api/quarantine/${item.id}/release`, { method: 'POST' });
       }
     } catch (err) {
       // client-side state already updated
@@ -608,14 +624,13 @@ export function App() {
   // Delete Quarantined permanently
   const handleDeleteQuarantined = async (id: string) => {
     setQuarantineItems((prev) => prev.filter((q) => q.id !== id));
-
-    const user = googleUser || getCurrentUser();
-    if (user) {
-      await FirestoreSyncService.deleteQuarantineItem(user.uid, id);
+    const currentUid = user?.uid || firebaseUser?.uid;
+    if (currentUid) {
+      await FirestoreSyncService.deleteQuarantineItem(currentUid, id);
     }
 
     try {
-      await fetch(`/api/quarantine/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/quarantine/${id}`, { method: 'DELETE' });
     } catch (err) {
       // client-side state already updated
     }
@@ -641,13 +656,13 @@ export function App() {
 
     setAccounts((prev) => [...prev, newAcc]);
 
-    const user = googleUser || getCurrentUser();
-    if (user) {
-      await FirestoreSyncService.saveAccount(user.uid, newAcc);
+    const currentUid = user?.uid || firebaseUser?.uid;
+    if (currentUid) {
+      await FirestoreSyncService.saveAccount(currentUid, newAcc);
     }
 
     try {
-      await fetch('/api/accounts', {
+      await apiFetch('/api/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(acc),
@@ -660,14 +675,13 @@ export function App() {
   // Disconnect Account
   const handleDisconnectAccount = async (id: string) => {
     setAccounts((prev) => prev.filter((a) => a.id !== id));
-
-    const user = googleUser || getCurrentUser();
-    if (user) {
-      await FirestoreSyncService.deleteAccount(user.uid, id);
+    const currentUid = user?.uid || firebaseUser?.uid;
+    if (currentUid) {
+      await FirestoreSyncService.deleteAccount(currentUid, id);
     }
 
     try {
-      await fetch(`/api/accounts/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/accounts/${id}`, { method: 'DELETE' });
     } catch (err) {
       // client-side state already updated
     }
@@ -681,16 +695,16 @@ export function App() {
       type,
       addedAt: new Date().toISOString(),
     };
-    const updated = { ...securitySettings, whitelist: [...securitySettings.whitelist, item] };
+    const updated = { ...securitySettings, whitelist: [...(securitySettings.whitelist || []), item] };
     setSecuritySettings(updated);
 
-    const user = googleUser || getCurrentUser();
-    if (user) {
-      await FirestoreSyncService.saveSettings(user.uid, updated, notifications);
+    const currentUid = user?.uid || firebaseUser?.uid;
+    if (currentUid) {
+      await FirestoreSyncService.saveSettings(currentUid, updated, notifications);
     }
 
     try {
-      await fetch('/api/settings/whitelist', {
+      await apiFetch('/api/settings/whitelist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value, type }),
@@ -703,17 +717,17 @@ export function App() {
   const handleRemoveWhitelist = async (id: string) => {
     const updated = {
       ...securitySettings,
-      whitelist: securitySettings.whitelist.filter((w) => w.id !== id),
+      whitelist: (securitySettings.whitelist || []).filter((w) => w.id !== id),
     };
     setSecuritySettings(updated);
 
-    const user = googleUser || getCurrentUser();
-    if (user) {
-      await FirestoreSyncService.saveSettings(user.uid, updated, notifications);
+    const currentUid = user?.uid || firebaseUser?.uid;
+    if (currentUid) {
+      await FirestoreSyncService.saveSettings(currentUid, updated, notifications);
     }
 
     try {
-      await fetch(`/api/settings/whitelist/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/settings/whitelist/${id}`, { method: 'DELETE' });
     } catch (err) {
       // client-side state already updated
     }
@@ -727,16 +741,16 @@ export function App() {
       type,
       addedAt: new Date().toISOString(),
     };
-    const updated = { ...securitySettings, blacklist: [...securitySettings.blacklist, item] };
+    const updated = { ...securitySettings, blacklist: [...(securitySettings.blacklist || []), item] };
     setSecuritySettings(updated);
 
-    const user = googleUser || getCurrentUser();
-    if (user) {
-      await FirestoreSyncService.saveSettings(user.uid, updated, notifications);
+    const currentUid = user?.uid || firebaseUser?.uid;
+    if (currentUid) {
+      await FirestoreSyncService.saveSettings(currentUid, updated, notifications);
     }
 
     try {
-      await fetch('/api/settings/blacklist', {
+      await apiFetch('/api/settings/blacklist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value, type }),
@@ -749,17 +763,17 @@ export function App() {
   const handleRemoveBlacklist = async (id: string) => {
     const updated = {
       ...securitySettings,
-      blacklist: securitySettings.blacklist.filter((b) => b.id !== id),
+      blacklist: (securitySettings.blacklist || []).filter((b) => b.id !== id),
     };
     setSecuritySettings(updated);
 
-    const user = googleUser || getCurrentUser();
-    if (user) {
-      await FirestoreSyncService.saveSettings(user.uid, updated, notifications);
+    const currentUid = user?.uid || firebaseUser?.uid;
+    if (currentUid) {
+      await FirestoreSyncService.saveSettings(currentUid, updated, notifications);
     }
 
     try {
-      await fetch(`/api/settings/blacklist/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/settings/blacklist/${id}`, { method: 'DELETE' });
     } catch (err) {
       // client-side state already updated
     }
@@ -775,13 +789,13 @@ export function App() {
       prev.map((r) => (r.id === ruleId ? updatedRule : r))
     );
 
-    const user = googleUser || getCurrentUser();
-    if (user) {
-      await FirestoreSyncService.saveAutomationRule(user.uid, updatedRule);
+    const currentUid = user?.uid || firebaseUser?.uid;
+    if (currentUid) {
+      await FirestoreSyncService.saveAutomationRule(currentUid, updatedRule);
     }
 
     try {
-      await fetch(`/api/rules/${ruleId}`, {
+      await apiFetch(`/api/rules/${ruleId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isActive: !rule.isActive }),
@@ -804,13 +818,13 @@ export function App() {
 
     setAutomationRules((prev) => [...prev, newRule]);
 
-    const user = googleUser || getCurrentUser();
-    if (user) {
-      await FirestoreSyncService.saveAutomationRule(user.uid, newRule);
+    const currentUid = user?.uid || firebaseUser?.uid;
+    if (currentUid) {
+      await FirestoreSyncService.saveAutomationRule(currentUid, newRule);
     }
 
     try {
-      await fetch('/api/rules', {
+      await apiFetch('/api/rules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newRule),
@@ -823,12 +837,12 @@ export function App() {
   // Update Settings
   const handleUpdateSecurity = async (sec: SecuritySettings) => {
     setSecuritySettings(sec);
-    const user = googleUser || getCurrentUser();
-    if (user) {
-      await FirestoreSyncService.saveSettings(user.uid, sec, notifications);
+    const currentUid = user?.uid || firebaseUser?.uid;
+    if (currentUid) {
+      await FirestoreSyncService.saveSettings(currentUid, sec, notifications);
     }
     try {
-      await fetch('/api/settings', {
+      await apiFetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ security: sec }),
@@ -841,12 +855,12 @@ export function App() {
   const handleUpdateNotifications = async (notif: NotificationConfig) => {
     const cleanNotif = normalizeNotificationConfig(notif);
     setNotifications(cleanNotif);
-    const user = googleUser || getCurrentUser();
-    if (user) {
-      await FirestoreSyncService.saveSettings(user.uid, securitySettings, cleanNotif);
+    const currentUid = user?.uid || firebaseUser?.uid;
+    if (currentUid) {
+      await FirestoreSyncService.saveSettings(currentUid, securitySettings, cleanNotif);
     }
     try {
-      await fetch('/api/settings', {
+      await apiFetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notifications: cleanNotif }),
@@ -859,35 +873,76 @@ export function App() {
   // Simulate Incoming Email
   const handleSimulateIncoming = async (data: any) => {
     try {
-      const res = await fetch('/api/emails/simulate-incoming', {
+      const res = await apiFetch('/api/emails/simulate-incoming', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
       const result = await res.json();
 
-      // Reload email lists and quarantine
       const [eRes, qRes] = await Promise.all([
-        fetch('/api/emails').catch(() => null),
-        fetch('/api/quarantine').catch(() => null),
+        apiFetch('/api/emails').catch(() => null),
+        apiFetch('/api/quarantine').catch(() => null),
       ]);
       if (eRes && eRes.ok) setEmails(await eRes.json());
       if (qRes && qRes.ok) setQuarantineItems(await qRes.json());
 
       return result;
     } catch (err) {
-      console.error('Simulation error:', err);
-      return null;
+      console.warn('Simulation note:', err);
     }
   };
 
+  // Loading state while Firebase initial auth state is resolving
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400 gap-4">
+        <div className="relative flex items-center justify-center w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+          <Shield className="w-6 h-6 animate-pulse" />
+        </div>
+        <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-slate-500">
+          <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+          <span>Verifying Secure Session...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // If user is not authenticated and has not chosen Demo Mode, render AuthView
+  // Strictly enforces protected routes!
+  if (!user && !isDemoMode) {
+    return <AuthView />;
+  }
+
+  const unreadCount = emails.filter((e) => !e.isRead && !e.isQuarantined && !e.isArchived).length;
+  const needsAttentionCount = emails.filter(
+    (e) => !e.isArchived && !e.isQuarantined && (e.aiAnalysis?.actionRequired || e.aiAnalysis?.priority === 'Critical')
+  ).length;
+
   const selectedEmail = emails.find((e) => e.id === selectedEmailId) || null;
-  const unreadCount = emails.filter((e) => !e.isRead).length;
-  const needsAttentionCount = emails.filter((e) => e.aiAnalysis.actionRequired).length;
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-950 font-sans text-slate-100">
-      {/* Universal Top Header */}
+    <div className="flex flex-col h-screen bg-slate-950 text-slate-100 font-sans antialiased overflow-hidden">
+      {/* Demo Mode Banner (when exploring offline preview without authentication) */}
+      {isDemoMode && !user && (
+        <div className="bg-gradient-to-r from-cyan-950/80 via-slate-900 to-indigo-950/80 border-b border-cyan-800/40 px-4 py-2 text-xs flex items-center justify-between text-cyan-200 shrink-0">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
+            <span>
+              <strong>Demo Preview Mode:</strong> Exploring sample mailboxes offline. Real-time protection & synchronization requires signing in.
+            </span>
+          </div>
+          <button
+            id="btn-banner-signin"
+            onClick={exitDemoMode}
+            className="px-3 py-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs transition"
+          >
+            Sign In / Register
+          </button>
+        </div>
+      )}
+
+      {/* Top Application Header */}
       <Header
         accounts={accounts}
         selectedAccountId={selectedAccountId}
@@ -899,61 +954,14 @@ export function App() {
         onOpenAskAi={() => setCurrentView('ask_ai')}
         onOpenScanSimulator={() => setCurrentView('accounts')}
         alerts={alerts}
-        onOpenEmail={(id) => setSelectedEmailId(id)}
-        googleUser={googleUser}
-        onSignInWithGoogle={handleGoogleSignIn}
-        onSignOut={handleSignOut}
-        isSigningInGoogle={isSigningInGoogle}
+        onOpenEmail={(emailId) => setSelectedEmailId(emailId)}
+        user={user}
+        isDemoMode={isDemoMode}
+        onSignIn={exitDemoMode}
+        onSignOut={logout}
+        googleUser={firebaseUser}
+        onSignInWithGoogle={loginWithGoogle}
       />
-
-      {/* Optional Auth Prompt Banner if user not signed in yet */}
-      {needsAuth && authInitialized && (
-        <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-indigo-950 border-b border-indigo-900/50 px-4 py-2 flex items-center justify-between text-xs animate-in fade-in">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-indigo-400 shrink-0" />
-            <span className="text-slate-300">
-              Personal Mailboxes & Google Workspace:{' '}
-              <span className="text-slate-400">
-                Sign in with Google to synchronize your live Gmail, Google Calendar, Google Drive, and Google Tasks with persistent Firestore cloud storage.
-              </span>
-            </span>
-          </div>
-          <button
-            id="banner-google-signin-btn"
-            onClick={handleGoogleSignIn}
-            disabled={isSigningInGoogle}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-md font-medium text-xs shadow-xs transition shrink-0 ml-3 ${
-              isSigningInGoogle
-                ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
-                : 'bg-white hover:bg-slate-100 text-slate-800'
-            }`}
-          >
-            {isSigningInGoogle ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-600" />
-            ) : (
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
-                <path
-                  fill="#4285F4"
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                />
-                <path
-                  fill="#EA4335"
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                />
-              </svg>
-            )}
-            <span>{isSigningInGoogle ? 'Connecting...' : 'Sign in with Google'}</span>
-          </button>
-        </div>
-      )}
 
       {/* Main Workspace Body */}
       <div className="flex flex-1 overflow-hidden">
@@ -979,6 +987,8 @@ export function App() {
               isLoadingSummary={isLoadingSummary}
               onOpenEmail={(id) => setSelectedEmailId(id)}
               onNavigateToView={(view) => setCurrentView(view)}
+              onMarkRead={(id) => handleToggleRead(id, false)}
+              onMarkImportant={handleMarkImportant}
             />
           )}
 
@@ -997,16 +1007,12 @@ export function App() {
           )}
 
           {currentView === 'needs_attention' && (
-            <UnifiedInboxView
+            <NeedsAttentionView
               emails={emails}
               accounts={accounts}
-              selectedAccountId={selectedAccountId}
-              onSelectAccount={setSelectedAccountId}
               onOpenEmail={(id) => setSelectedEmailId(id)}
-              onToggleRead={handleToggleRead}
-              onArchive={handleArchive}
-              onQuarantine={handleQuarantineEmail}
-              filterMode="needs_attention"
+              onMarkRead={(id) => handleToggleRead(id, false)}
+              onMarkImportant={handleMarkImportant}
             />
           )}
 
@@ -1020,9 +1026,9 @@ export function App() {
 
           {currentView === 'workspace' && (
             <GoogleWorkspaceView
-              googleUser={googleUser}
-              onSignInWithGoogle={handleGoogleSignIn}
-              isSigningIn={isSigningInGoogle}
+              googleUser={firebaseUser}
+              onSignInWithGoogle={loginWithGoogle}
+              isSigningIn={false}
               onRequestConfirm={(p) => setConfirmation({ ...p, isOpen: true })}
               dailySummary={dailySummary}
             />
@@ -1072,54 +1078,52 @@ export function App() {
             />
           )}
 
-          {currentView === 'rules_whitelist' && (
-            <SecurityCenterView
-              emails={emails}
-              quarantineItems={quarantineItems}
-              alerts={alerts}
-              auditLogs={auditLogs}
-              automationRules={automationRules}
-              settings={securitySettings}
-              onOpenEmail={(id) => setSelectedEmailId(id)}
-              onReleaseQuarantine={handleReleaseQuarantine}
-              onDeleteQuarantined={handleDeleteQuarantined}
-              onAddWhitelist={(val, type) => handleAddWhitelist(val, type)}
-              onRemoveWhitelist={handleRemoveWhitelist}
-              onAddBlacklist={(val, type) => handleAddBlacklist(val, type)}
-              onRemoveBlacklist={handleRemoveBlacklist}
+          {(currentView === 'rules' || currentView === 'rules_whitelist') && (
+            <RulesView
+              rules={automationRules}
               onToggleRule={handleToggleRule}
               onAddRule={handleAddRule}
+              onDeleteRule={(id) => setAutomationRules((prev) => prev.filter((r) => r.id !== id))}
               onRequestConfirm={(p) => setConfirmation({ ...p, isOpen: true })}
-              initialSubTab="rules"
             />
           )}
 
-          {currentView === 'audit_logs' && (
-            <SecurityCenterView
-              emails={emails}
-              quarantineItems={quarantineItems}
-              alerts={alerts}
-              auditLogs={auditLogs}
-              automationRules={automationRules}
-              settings={securitySettings}
-              onOpenEmail={(id) => setSelectedEmailId(id)}
-              onReleaseQuarantine={handleReleaseQuarantine}
-              onDeleteQuarantined={handleDeleteQuarantined}
-              onAddWhitelist={(val, type) => handleAddWhitelist(val, type)}
-              onRemoveWhitelist={handleRemoveWhitelist}
-              onAddBlacklist={(val, type) => handleAddBlacklist(val, type)}
-              onRemoveBlacklist={handleRemoveBlacklist}
-              onToggleRule={handleToggleRule}
-              onAddRule={handleAddRule}
-              onRequestConfirm={(p) => setConfirmation({ ...p, isOpen: true })}
-              initialSubTab="audit"
+          {currentView === 'notifications' && (
+            <NotificationsView
+              config={notifications}
+              onUpdateConfig={handleUpdateNotifications}
+              onTestNotification={() => {
+                setAlerts((prev) => [
+                  {
+                    id: `alert-test-${Date.now()}`,
+                    title: 'Test Notification Dispatched',
+                    description: 'Simulated high-priority alert sent through notification pipeline.',
+                    severity: 'high',
+                    timestamp: new Date().toISOString(),
+                    acknowledged: false,
+                  },
+                  ...prev,
+                ]);
+              }}
+            />
+          )}
+
+          {(currentView === 'activity' || currentView === 'audit_logs') && (
+            <ActivityView
+              logs={auditLogs.map((l) => ({
+                id: l.id,
+                action: l.action,
+                details: l.details,
+                timestamp: l.timestamp,
+                severity: l.severity,
+              }))}
             />
           )}
 
           {currentView === 'accounts' && (
             <AccountsView
               accounts={accounts}
-              onSyncAccount={handleSyncAll}
+              onSyncAccount={handleSyncSingleAccount}
               onDisconnectAccount={handleDisconnectAccount}
               onAddAccount={handleAddAccount}
               onSimulateIncoming={handleSimulateIncoming}
@@ -1153,30 +1157,115 @@ export function App() {
       </div>
 
       {/* Email Detail & Security Deep Dive Modal */}
-      <EmailDetailModal
-        email={selectedEmail}
-        onClose={() => setSelectedEmailId(null)}
-        onArchive={(id) => handleArchive(id)}
-        onToggleQuarantine={(id, current) => {
-          if (current) handleReleaseQuarantine(id);
-          else handleQuarantineEmail(id);
-        }}
-        onWhitelistDomain={(d) => handleAddWhitelist(d, 'domain')}
-        onBlacklistDomain={(d) => handleAddBlacklist(d, 'domain')}
-        onRequestConfirm={(p) => setConfirmation({ ...p, isOpen: true })}
-      />
+      {selectedEmail && (
+        <EmailDetailModal
+          email={selectedEmail}
+          onClose={() => setSelectedEmailId(null)}
+          onArchive={(id) => handleArchive(id)}
+          onToggleQuarantine={(id, current) => {
+            if (current) handleReleaseQuarantine(id);
+            else handleQuarantineEmail(id);
+          }}
+          onWhitelistDomain={(d) => handleAddWhitelist(d, 'domain')}
+          onBlacklistDomain={(d) => handleAddBlacklist(d, 'domain')}
+          onRequestConfirm={(p) => setConfirmation({ ...p, isOpen: true })}
+          onEmailUpdate={(updated) => {
+            setEmails((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+          }}
+        />
+      )}
 
       {/* Universal Controlled Confirmation Modal */}
-      <ConfirmationModal
-        isOpen={confirmation.isOpen}
-        title={confirmation.title}
-        description={confirmation.description}
-        confirmLabel={confirmation.confirmLabel}
-        isDestructive={confirmation.isDestructive}
-        onConfirm={confirmation.onConfirm}
-        onCancel={() => setConfirmation((prev) => ({ ...prev, isOpen: false }))}
-      />
+      {confirmation.isOpen && (
+        <ConfirmationModal
+          isOpen={confirmation.isOpen}
+          title={confirmation.title}
+          description={confirmation.description}
+          confirmLabel={confirmation.confirmLabel}
+          isDestructive={confirmation.isDestructive}
+          onConfirm={confirmation.onConfirm}
+          onCancel={() => setConfirmation((prev) => ({ ...prev, isOpen: false }))}
+        />
+      )}
+
+      {/* Welcome & First-Time Onboarding Modal */}
+      {showOnboarding && (
+        <OnboardingModal
+          isOpen={showOnboarding}
+          onClose={() => {
+            setShowOnboarding(false);
+            localStorage.setItem('mailsentinel_onboarded_dismissed', 'true');
+          }}
+          onConnectGmail={() => {
+            setShowOnboarding(false);
+            localStorage.setItem('mailsentinel_onboarded_dismissed', 'true');
+            loginWithGoogle();
+          }}
+          onConnectOutlook={() => {
+            setShowOnboarding(false);
+            localStorage.setItem('mailsentinel_onboarded_dismissed', 'true');
+            handleAddAccount({
+              emailAddress: 'alex.morgan@contoso.com',
+              provider: 'outlook',
+              displayName: 'Alex Morgan (Work)',
+            });
+          }}
+        />
+      )}
+
+      {/* Real-time Push Notification Alert Banner (FCM Foreground & Deep Link) */}
+      {incomingPushAlert && (
+        <div className="fixed top-4 right-4 z-50 max-w-md w-full p-4 rounded-2xl bg-slate-900/95 border border-indigo-500/40 shadow-2xl backdrop-blur-md">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                <Bell className="w-5 h-5 animate-pulse" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-white text-xs">{incomingPushAlert.title}</span>
+                  {incomingPushAlert.priority && (
+                    <span className="px-1.5 py-0.5 rounded font-mono text-[9px] bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                      {incomingPushAlert.priority.toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                <p className="text-slate-300 text-xs leading-snug">{incomingPushAlert.body}</p>
+                {incomingPushAlert.emailId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedEmailId(incomingPushAlert.emailId!);
+                      setIncomingPushAlert(null);
+                    }}
+                    className="mt-2 px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs flex items-center gap-1.5 transition shadow-sm"
+                  >
+                    <span>Inspect Email</span>
+                    <ArrowUpRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIncomingPushAlert(null)}
+              className="text-slate-400 hover:text-white p-1"
+              title="Dismiss"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
 

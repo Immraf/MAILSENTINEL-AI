@@ -2,10 +2,16 @@ import { initializeApp } from 'firebase/app';
 import {
   getAuth,
   signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updateProfile,
   signOut,
   GoogleAuthProvider,
   onAuthStateChanged,
   User,
+  setPersistence,
+  browserLocalPersistence,
 } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -19,19 +25,21 @@ export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId)
 // Initialize Firebase Auth
 export const auth = getAuth(app);
 
-// Configure Google Auth Provider with requested Google Workspace scopes
+// Guarantee persistent session across page reloads and browser sessions
+try {
+  setPersistence(auth, browserLocalPersistence).catch((err) => {
+    console.warn('Could not set Firebase auth persistence:', err);
+  });
+} catch (e) {
+  // Ignore in environments without window/indexedDB
+}
+
+// Configure Google Auth Provider strictly with minimum required scopes: gmail.readonly only
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/gmail.readonly');
-googleProvider.addScope('https://www.googleapis.com/auth/gmail.modify');
-googleProvider.addScope('https://www.googleapis.com/auth/gmail.labels');
-googleProvider.addScope('https://www.googleapis.com/auth/calendar.events');
-googleProvider.addScope('https://www.googleapis.com/auth/calendar.readonly');
-googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
-googleProvider.addScope('https://www.googleapis.com/auth/drive.metadata.readonly');
-googleProvider.addScope('https://www.googleapis.com/auth/tasks');
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-// Access token cached strictly in-memory (never in localStorage or sessionStorage)
+// In-memory token cache for fast client requests
 let cachedAccessToken: string | null = null;
 let isSigningIn = false;
 let activeSignInPromise: Promise<{ user: User; accessToken: string } | null> | null = null;
@@ -48,28 +56,44 @@ export async function testConnection() {
 }
 testConnection();
 
-export const initAuth = (
-  onAuthSuccess?: (user: User, token: string | null) => void,
-  onAuthFailure?: () => void
-) => {
-  return onAuthStateChanged(auth, async (user: User | null) => {
-    if (user) {
-      if (cachedAccessToken) {
-        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
-      } else if (!isSigningIn) {
-        // User is restored from Firebase Auth session
-        if (onAuthSuccess) onAuthSuccess(user, null);
-      }
-    } else {
-      cachedAccessToken = null;
-      if (onAuthFailure) onAuthFailure();
+/**
+ * Register with Email and Password using Firebase Authentication
+ */
+export async function registerWithEmail(
+  email: string,
+  password: string,
+  displayName?: string
+): Promise<User> {
+  const credential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+  if (displayName && credential.user) {
+    try {
+      await updateProfile(credential.user, { displayName: displayName.trim() });
+    } catch (err) {
+      console.warn('Could not set displayName on registered user:', err);
     }
-  });
-};
+  }
+  return credential.user;
+}
 
+/**
+ * Login with Email and Password using Firebase Authentication
+ */
+export async function loginWithEmail(email: string, password: string): Promise<User> {
+  const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
+  return credential.user;
+}
+
+/**
+ * Send Password Reset Email via Firebase Authentication
+ */
+export async function resetPassword(email: string): Promise<void> {
+  await sendPasswordResetEmail(auth, email.trim());
+}
+
+/**
+ * Sign in using Google with Firebase Authentication Popup
+ */
 export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
-  // If a sign-in popup is already active or in-flight, reuse the same promise to prevent
-  // auth/cancelled-popup-request triggered by concurrent popup requests
   if (activeSignInPromise) {
     return activeSignInPromise;
   }
@@ -87,7 +111,6 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
       return { user: result.user, accessToken: cachedAccessToken };
     } catch (error: any) {
       const code = error?.code || '';
-      // Gracefully handle expected user actions: cancelling, closing the popup, or browser blocking
       if (
         code === 'auth/cancelled-popup-request' ||
         code === 'auth/popup-closed-by-user'
@@ -111,6 +134,56 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
   return activeSignInPromise;
 };
 
+/**
+ * Retrieve fresh or cached Firebase ID Token for backend API authorization
+ */
+export async function getFirebaseIdToken(forceRefresh = false): Promise<string | null> {
+  const user = auth.currentUser;
+  if (!user) return null;
+  try {
+    return await user.getIdToken(forceRefresh);
+  } catch (err) {
+    console.warn('Failed to retrieve Firebase ID token:', err);
+    return null;
+  }
+}
+
+/**
+ * Log out user from Firebase Authentication
+ */
+export const logoutUser = async (): Promise<void> => {
+  await signOut(auth);
+  cachedAccessToken = null;
+};
+
+export const logout = logoutUser;
+
+export const getCurrentUser = (): User | null => {
+  return auth.currentUser;
+};
+
+export const onAuthStateChange = (callback: (user: User | null) => void) => {
+  return onAuthStateChanged(auth, callback);
+};
+
+export const initAuth = (
+  onAuthSuccess?: (user: User, token: string | null) => void,
+  onAuthFailure?: () => void
+) => {
+  return onAuthStateChanged(auth, async (user: User | null) => {
+    if (user) {
+      if (cachedAccessToken) {
+        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
+      } else if (!isSigningIn) {
+        if (onAuthSuccess) onAuthSuccess(user, null);
+      }
+    } else {
+      cachedAccessToken = null;
+      if (onAuthFailure) onAuthFailure();
+    }
+  });
+};
+
 export const getAccessToken = async (): Promise<string | null> => {
   return cachedAccessToken;
 };
@@ -119,23 +192,8 @@ export const getCachedAccessToken = (): string | null => {
   return cachedAccessToken;
 };
 
-export const getCurrentUser = (): User | null => {
-  return auth.currentUser;
-};
-
 export const setCachedAccessToken = (token: string | null) => {
   cachedAccessToken = token;
-};
-
-export const logout = async () => {
-  await signOut(auth);
-  cachedAccessToken = null;
-};
-
-export const logoutUser = logout;
-
-export const onAuthStateChange = (callback: (user: User | null) => void) => {
-  return onAuthStateChanged(auth, callback);
 };
 
 // Firestore Error Handler conforming to the Firebase Skill schema

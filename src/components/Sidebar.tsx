@@ -8,26 +8,30 @@ import {
   ShieldAlert,
   Archive,
   Sliders,
-  FileText,
+  Activity,
   MailCheck,
   Settings,
   Shield,
-  ChevronRight,
+  Bell,
   HardDrive,
+  Users,
 } from 'lucide-react';
 
 export type NavView =
   | 'dashboard'
   | 'inbox'
   | 'needs_attention'
-  | 'ask_ai'
   | 'deadlines'
-  | 'workspace'
-  | 'security_center'
-  | 'quarantine'
-  | 'rules_whitelist'
-  | 'audit_logs'
+  | 'ask_ai'
   | 'accounts'
+  | 'security_center'
+  | 'notifications'
+  | 'rules'
+  | 'rules_whitelist'
+  | 'activity'
+  | 'audit_logs'
+  | 'quarantine'
+  | 'workspace'
   | 'settings';
 
 interface SidebarProps {
@@ -37,6 +41,8 @@ interface SidebarProps {
   needsAttentionCount: number;
   quarantineCount: number;
   activeAccountsCount: number;
+  securityAlertsCount?: number;
+  onCloseMobileDrawer?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -46,10 +52,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
   needsAttentionCount,
   quarantineCount,
   activeAccountsCount,
+  securityAlertsCount = 0,
+  onCloseMobileDrawer,
 }) => {
+  const handleNav = (view: NavView) => {
+    onNavigate(view);
+    if (onCloseMobileDrawer) {
+      onCloseMobileDrawer();
+    }
+  };
+
   const navSections = [
     {
-      title: 'CORE INBOX',
+      title: 'PRODUCTIVITY',
       items: [
         {
           id: 'dashboard' as NavView,
@@ -59,7 +74,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         },
         {
           id: 'inbox' as NavView,
-          label: 'Unified Inbox',
+          label: 'Inbox',
           icon: Inbox,
           badge: unreadCount > 0 ? `${unreadCount}` : null,
           badgeColor: 'bg-indigo-500/20 text-indigo-300',
@@ -69,119 +84,143 @@ export const Sidebar: React.FC<SidebarProps> = ({
           label: 'Needs Attention',
           icon: AlertCircle,
           badge: needsAttentionCount > 0 ? `${needsAttentionCount}` : null,
-          badgeColor: 'bg-amber-500/20 text-amber-300',
+          badgeColor: 'bg-amber-500/20 text-amber-300 font-bold',
         },
-      ],
-    },
-    {
-      title: 'AI INTELLIGENCE',
-      items: [
+        {
+          id: 'deadlines' as NavView,
+          label: 'Tasks & Deadlines',
+          icon: CalendarCheck,
+          badge: null,
+        },
         {
           id: 'ask_ai' as NavView,
           label: 'Ask MailSentinel',
           icon: Sparkles,
-          badge: 'RAG',
+          badge: 'AI',
           badgeColor: 'bg-cyan-500/20 text-cyan-300 font-mono text-[9px]',
         },
-        {
-          id: 'deadlines' as NavView,
-          label: 'Deadlines & Tasks',
-          icon: CalendarCheck,
-          badge: null,
-        },
       ],
     },
     {
-      title: 'GOOGLE WORKSPACE',
+      title: 'MANAGEMENT & PROTECTION',
       items: [
         {
-          id: 'workspace' as NavView,
-          label: 'Calendar, Drive & Tasks',
-          icon: HardDrive,
-          badge: 'Sync',
-          badgeColor: 'bg-indigo-500/20 text-indigo-300 font-mono text-[9px]',
+          id: 'accounts' as NavView,
+          label: 'Accounts',
+          icon: MailCheck,
+          badge: `${activeAccountsCount}/10`,
+          badgeColor: 'bg-slate-800 text-slate-400 font-mono text-[10px]',
         },
-      ],
-    },
-    {
-      title: 'SECURITY ENGINE',
-      items: [
         {
           id: 'security_center' as NavView,
           label: 'Security Center',
-          icon: ShieldAlert,
-          badge: null,
-        },
-        {
-          id: 'quarantine' as NavView,
-          label: 'Quarantine',
-          icon: Archive,
-          badge: quarantineCount > 0 ? `${quarantineCount}` : null,
+          icon: Shield,
+          badge: securityAlertsCount > 0 ? `${securityAlertsCount} alerts` : null,
           badgeColor: 'bg-rose-500/20 text-rose-300',
         },
         {
-          id: 'rules_whitelist' as NavView,
-          label: 'Rules & Whitelist',
+          id: 'notifications' as NavView,
+          label: 'Notifications',
+          icon: Bell,
+          badge: null,
+        },
+        {
+          id: 'rules' as NavView,
+          label: 'Rules',
           icon: Sliders,
           badge: null,
         },
         {
-          id: 'audit_logs' as NavView,
-          label: 'Audit & Scan Logs',
-          icon: FileText,
+          id: 'activity' as NavView,
+          label: 'Activity',
+          icon: Activity,
           badge: null,
         },
       ],
     },
     {
-      title: 'CONFIGURATION',
+      title: 'PREFERENCES',
       items: [
         {
-          id: 'accounts' as NavView,
-          label: 'Connected Accounts',
-          icon: MailCheck,
-          badge: `${activeAccountsCount}/10`,
-          badgeColor: 'bg-slate-700 text-slate-300 font-mono text-[10px]',
-        },
-        {
           id: 'settings' as NavView,
-          label: 'Notifications & Safety',
+          label: 'Settings',
           icon: Settings,
           badge: null,
+        },
+        {
+          id: 'workspace' as NavView,
+          label: 'Google Workspace',
+          icon: HardDrive,
+          badge: 'Live',
+          badgeColor: 'bg-indigo-500/20 text-indigo-300 font-mono text-[9px]',
         },
       ],
     },
   ];
 
   return (
-    <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0 select-none overflow-y-auto">
-      <div className="p-4 space-y-6">
-        {navSections.map((sec, idx) => (
-          <div key={idx} className="space-y-1">
-            <h4 className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">{sec.title}</h4>
-            <div className="space-y-0.5 mt-1">
-              {sec.items.map((item) => {
-                const isActive = currentView === item.id;
-                const IconComponent = item.icon;
+    <aside className="w-64 shrink-0 bg-slate-950 border-r border-slate-800/80 flex flex-col h-full overflow-y-auto select-none">
+      {/* Brand Header */}
+      <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 text-white shadow-md">
+            <Shield className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold text-sm text-white tracking-tight">MailSentinel</span>
+              <span className="text-[10px] px-1 rounded font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                AI
+              </span>
+            </div>
+            <p className="text-[10px] text-slate-400">Personal Email Intelligence</p>
+          </div>
+        </div>
+
+        {/* Demo Mode Badge */}
+        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 font-bold">
+          DEMO
+        </span>
+      </div>
+
+      {/* Navigation Sections */}
+      <div className="flex-1 py-4 px-3 space-y-6">
+        {navSections.map((section) => (
+          <div key={section.title} className="space-y-1">
+            <h3 className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono">
+              {section.title}
+            </h3>
+
+            <div className="space-y-0.5 pt-1">
+              {section.items.map((item) => {
+                const Icon = item.icon;
+                const isActive =
+                  currentView === item.id ||
+                  (item.id === 'rules' && currentView === 'rules_whitelist') ||
+                  (item.id === 'activity' && currentView === 'audit_logs');
+
                 return (
                   <button
                     key={item.id}
-                    id={`nav-item-${item.id}`}
-                    onClick={() => onNavigate(item.id)}
-                    className={`w-full flex items-center justify-between px-3 py-2 text-xs rounded-lg font-medium transition ${
+                    id={`nav-link-${item.id}`}
+                    onClick={() => handleNav(item.id)}
+                    className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium rounded-xl transition ${
                       isActive
-                        ? 'bg-gradient-to-r from-indigo-600/30 to-cyan-600/20 text-cyan-300 border border-cyan-500/30 shadow-xs'
-                        : 'text-slate-300 hover:text-white hover:bg-slate-800/70 border border-transparent'
+                        ? 'bg-indigo-600 text-white shadow-xs font-semibold'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
-                      <IconComponent
-                        className={`w-4 h-4 ${isActive ? 'text-cyan-400' : 'text-slate-400 group-hover:text-slate-300'}`}
-                      />
+                      <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
                       <span>{item.label}</span>
                     </div>
+
                     {item.badge && (
-                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${item.badgeColor || 'bg-slate-800 text-slate-300'}`}>
+                      <span
+                        className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                          item.badgeColor || 'bg-slate-800 text-slate-300'
+                        }`}
+                      >
                         {item.badge}
                       </span>
                     )}
@@ -193,19 +232,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ))}
       </div>
 
-      {/* Security Engine Health Footer Banner */}
-      <div className="p-4 border-t border-slate-800/80 bg-slate-950/40">
-        <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60">
-          <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400">
-            <Shield className="w-4 h-4" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-slate-200">Zero-Trust Guard</span>
-              <span className="text-[9px] px-1 rounded-sm bg-emerald-500/20 text-emerald-300 font-mono">ACTIVE</span>
-            </div>
-            <p className="text-[10px] text-slate-400 truncate mt-0.5">DMARC, Links & Executables checked</p>
-          </div>
+      {/* Account Capacity Status */}
+      <div className="p-3 m-3 rounded-xl bg-slate-900 border border-slate-800 text-xs space-y-2">
+        <div className="flex items-center justify-between text-[11px]">
+          <span className="text-slate-400 font-medium">Mailboxes Connected</span>
+          <span className="text-cyan-400 font-mono font-bold">{activeAccountsCount}/10</span>
+        </div>
+        <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-indigo-500 to-cyan-400 transition-all duration-300"
+            style={{ width: `${(activeAccountsCount / 10) * 100}%` }}
+          />
         </div>
       </div>
     </aside>

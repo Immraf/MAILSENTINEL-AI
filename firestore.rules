@@ -28,7 +28,7 @@ service cloud.firestore {
       return resource.data;
     }
 
-    // User profile match
+    // User-scoped data tree: /users/{userId}
     match /users/{userId} {
       allow get: if isOwner(userId);
       allow create: if isOwner(userId) && isValidId(userId) &&
@@ -40,85 +40,162 @@ service cloud.firestore {
         incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']);
       allow delete: if isOwner(userId);
 
-      // Connected email accounts (up to 10 per user)
+      // 1. Connected email accounts (OAuth tokens / credentials strictly blocked from client write)
       match /emailAccounts/{accountId} {
         allow read, list: if isOwner(userId);
         allow create: if isOwner(userId) && isValidId(accountId) &&
-          incoming().keys().hasAll(['id', 'userId', 'provider', 'emailAddress', 'connectionStatus']) &&
+          incoming().keys().hasAll(['id', 'userId', 'provider', 'emailAddress', 'status']) &&
           incoming().userId == userId &&
           incoming().emailAddress is string && incoming().emailAddress.size() <= 256 &&
-          incoming().provider in ['gmail', 'outlook', 'demo'];
+          !incoming().keys().hasAny(['accessToken', 'refreshToken', 'accessTokenEncrypted', 'refreshTokenEncrypted']);
         allow update: if isOwner(userId) &&
           incoming().userId == existing().userId &&
-          incoming().diff(existing()).affectedKeys().hasOnly([
-            'displayName', 'accountLabel', 'connectionStatus', 'lastSuccessfulSync', 'lastSyncError', 'updatedAt'
-          ]);
+          !incoming().keys().hasAny(['accessToken', 'refreshToken', 'accessTokenEncrypted', 'refreshTokenEncrypted']);
         allow delete: if isOwner(userId);
       }
 
-      // Synchronized user emails
+      // 2. Email sync state (Server-managed only via Firebase Admin SDK)
+      match /emailSyncState/{accountId} {
+        allow read, list: if isOwner(userId);
+        allow write: if false; // Client write strictly denied
+      }
+
+      // 3. User emails (Strict user isolation, client can update status flags)
       match /emails/{emailId} {
         allow read, list: if isOwner(userId);
         allow create: if isOwner(userId) && isValidId(emailId) &&
-          incoming().userId == userId &&
-          incoming().subject is string && incoming().subject.size() <= 512;
+          incoming().userId == userId;
         allow update: if isOwner(userId) &&
           incoming().userId == existing().userId &&
           incoming().diff(existing()).affectedKeys().hasOnly([
-            'isRead', 'isQuarantined', 'isArchived', 'importance', 'urgency', 'updatedAt'
+            'isRead', 'isArchived', 'isQuarantined', 'updatedAt'
           ]);
         allow delete: if isOwner(userId);
       }
 
-      // AI email summaries
-      match /emailSummaries/{summaryId} {
+      // 4. Email threads
+      match /emailThreads/{threadId} {
         allow read, list: if isOwner(userId);
-        allow create, update: if isOwner(userId) && isValidId(summaryId) &&
-          incoming().userId == userId &&
-          incoming().summary is string && incoming().summary.size() <= 2048;
+        allow create, update: if isOwner(userId) && isValidId(threadId) && incoming().userId == userId;
         allow delete: if isOwner(userId);
       }
 
-      // Google Calendar events
-      match /calendarEvents/{eventId} {
+      // 5. Attachments
+      match /attachments/{attachmentId} {
         allow read, list: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidId(eventId) &&
-          incoming().userId == userId &&
-          incoming().title is string && incoming().title.size() <= 256;
-        allow update: if isOwner(userId) &&
-          incoming().userId == existing().userId &&
-          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'start', 'end', 'location', 'status']);
+        allow create, update: if isOwner(userId) && isValidId(attachmentId) && incoming().userId == userId;
         allow delete: if isOwner(userId);
       }
 
-      // Google Tasks
+      // 6. AI intelligence & analysis
+      match /aiAnalysis/{analysisId} {
+        allow read, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(analysisId) && incoming().userId == userId;
+        allow delete: if isOwner(userId);
+      }
+
+      // 7. Extracted entities
+      match /extractedEntities/{entityId} {
+        allow read, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(entityId) && incoming().userId == userId;
+        allow delete: if isOwner(userId);
+      }
+
+      // 8. Security analysis
+      match /securityAnalysis/{analysisId} {
+        allow read, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(analysisId) && incoming().userId == userId;
+        allow delete: if isOwner(userId);
+      }
+
+      // 9. Security heuristic indicators
+      match /securityIndicators/{indicatorId} {
+        allow read, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(indicatorId) && incoming().userId == userId;
+        allow delete: if isOwner(userId);
+      }
+
+      // 10. Actionable tasks
       match /tasks/{taskId} {
         allow read, list: if isOwner(userId);
         allow create: if isOwner(userId) && isValidId(taskId) &&
           incoming().userId == userId &&
           incoming().title is string && incoming().title.size() <= 256;
-        allow update: if isOwner(userId) &&
-          incoming().userId == existing().userId &&
-          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'notes', 'due', 'status']);
+        allow update: if isOwner(userId) && incoming().userId == existing().userId;
         allow delete: if isOwner(userId);
       }
 
-      // Google Drive attachments
-      match /driveAttachments/{attachmentId} {
+      // 11. Detected deadlines
+      match /deadlines/{deadlineId} {
         allow read, list: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidId(attachmentId) &&
-          incoming().userId == userId &&
-          incoming().fileId is string && incoming().fileId.size() <= 256;
-        allow update, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(deadlineId) && incoming().userId == userId;
+        allow delete: if isOwner(userId);
       }
 
-      // Audit logs
+      // 12. In-app notifications
+      match /notifications/{notificationId} {
+        allow read, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(notificationId) && incoming().userId == userId;
+        allow update: if isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+        allow delete: if isOwner(userId);
+      }
+
+      // 13. Notification deliveries (Server-managed delivery log and deduplication record)
+      match /notificationDeliveries/{deliveryId} {
+        allow read, list: if isOwner(userId);
+        allow write: if false; // Server-managed only via Admin SDK
+      }
+
+      // 14. Notification devices (Web push devices)
+      match /notificationDevices/{deviceId} {
+        allow read, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(deviceId) && incoming().userId == userId;
+        allow delete: if isOwner(userId);
+      }
+
+      // 15. Notification preferences
+      match /notificationPreferences/{prefId} {
+        allow read, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(prefId) && incoming().userId == userId;
+        allow delete: if isOwner(userId);
+      }
+
+      // 16. Security rules (Custom user threat rules)
+      match /securityRules/{ruleId} {
+        allow read, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(ruleId) && incoming().userId == userId;
+        allow delete: if isOwner(userId);
+      }
+
+      // 17. User automation rules
+      match /userRules/{ruleId} {
+        allow read, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(ruleId) && incoming().userId == userId;
+        allow delete: if isOwner(userId);
+      }
+
+      // 18. Quarantine items
+      match /quarantineItems/{itemId} {
+        allow read, list: if isOwner(userId);
+        allow create, update, delete: if isOwner(userId) && isValidId(itemId) && (request.method == 'delete' || incoming().userId == userId);
+      }
+
+      // 19. Audit logs (Immutable)
       match /auditLogs/{logId} {
         allow read, list: if isOwner(userId);
         allow create: if isOwner(userId) && isValidId(logId) &&
           incoming().userId == userId &&
           incoming().action is string && incoming().action.size() <= 128;
-        allow update, delete: if false; // Immutable audit logs
+        allow update, delete: if false; // Immutable audit log
+      }
+
+      // 20. Highly sensitive server-only collections (tokens, refresh tokens, internal jobs)
+      match /serverSecrets/{secretId} {
+        allow read, write: if false;
+      }
+
+      match /processingJobs/{jobId} {
+        allow read, write: if false;
       }
     }
   }

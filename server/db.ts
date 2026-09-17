@@ -21,7 +21,54 @@ import {
   SecurityRule,
   SecuritySettings,
   WhitelistBlacklistEntry,
+  AccountStatus,
+  EmailCategory,
+  PriorityLevel,
+  SecurityClassification,
+  SecurityIndicator,
+  ExtractedEntity,
 } from '../src/types';
+import { encryptToken } from './encryption';
+import { FirestoreDb } from './firestoreDb';
+
+/**
+ * Background synchronizer for Firestore cloud persistence.
+ * For authenticated non-demo users, replicates records to Cloud Firestore.
+ */
+function syncToFirestore(fn: () => Promise<any>): void {
+  fn().catch((err) => {
+    if (process.env.DEBUG_FIRESTORE) {
+      console.warn('[Firestore Sync] Non-blocking persistence notice:', err?.message || err);
+    }
+  });
+}
+
+export interface EmailAnalysisRecord {
+  id: string; // analysis id, e.g. `analysis-${emailId}`
+  emailId: string;
+  userId: string;
+  version: string;
+  analyzedAt: string;
+  summary: string;
+  category: EmailCategory;
+  priority: PriorityLevel;
+  priorityScore: number;
+  urgency: 'Critical' | 'High' | 'Medium' | 'Low' | 'None';
+  actionRequired: boolean;
+  recommendedAction: string;
+  deadline: string | null;
+  tasks: Array<{ id: string; title: string; dueDate?: string | null; completed: boolean }>;
+  extractedEntities: ExtractedEntity[];
+  whyPriorityReasons: string[];
+  securityClassification: SecurityClassification;
+  securityRiskScore: number;
+  securityIndicators: SecurityIndicator[];
+  notificationDecision: {
+    shouldNotify: boolean;
+    channel: 'urgent' | 'standard' | 'silent';
+    reason: string;
+  };
+}
 
 export interface UserRecord {
   id: string;
@@ -46,16 +93,45 @@ export interface SyncStateRecord {
   deltaToken?: string;
 }
 
-export interface NotificationDeliveryRecord {
+export interface NotificationRecord {
   id: string;
   userId: string;
   emailId?: string;
   threadId?: string;
-  channel: 'push' | 'whatsapp' | 'browser' | 'digest';
-  status: 'delivered' | 'failed' | 'suppressed_quiet_hours' | 'suppressed_dedup' | 'unconfigured';
-  reason?: string;
-  payload: any;
+  title: string;
+  body: string;
+  priority: 'Critical' | 'High' | 'Medium' | 'Low' | 'Informational';
+  securityClassification?: string;
+  securityRiskScore?: number;
+  isSecurityAlert: boolean;
+  actionRequired: boolean;
+  deadline?: string | null;
+  category?: string;
+  decisionReasons: string[];
+  read: boolean;
   createdAt: string;
+}
+
+export interface NotificationDeliveryRecord {
+  id: string;
+  notificationId: string;
+  userId: string;
+  emailId?: string;
+  threadId?: string;
+  channel: 'browser_push' | 'mobile_push' | 'desktop' | 'whatsapp' | 'daily_digest' | 'push' | 'browser' | 'digest';
+  status: 'pending' | 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | 'suppressed';
+  createdAt: string;
+  wamid?: string;
+  queuedAt?: string;
+  sentAt?: string;
+  deliveredAt?: string;
+  readAt?: string;
+  failedAt?: string;
+  failureCode?: number | string;
+  failureReason?: string;
+  error?: string;
+  reason?: string;
+  payload?: any;
 }
 
 export interface OAuthStateRecord {
@@ -63,6 +139,8 @@ export interface OAuthStateRecord {
   userId: string;
   provider: 'gmail' | 'outlook';
   createdAt: number;
+  expiresAt: number;
+  used?: boolean;
   redirectUri: string;
 }
 
@@ -78,9 +156,22 @@ export interface DatabaseSchema {
   whitelistBlacklist: (WhitelistBlacklistEntry & { userId: string })[];
   notificationSettings: Record<string, NotificationSettings>; // keyed by userId
   securitySettings: Record<string, SecuritySettings>; // keyed by userId
+  notifications: (NotificationRecord & { userId: string })[];
   notificationDeliveries: NotificationDeliveryRecord[];
-  notificationDevices: Array<{ id: string; userId: string; pushToken: string; platform: string; registeredAt: string }>;
+  notificationDevices: Array<{
+    id: string;
+    userId: string;
+    deviceId: string;
+    platform: 'web' | 'android' | 'ios';
+    pushToken: string;
+    createdAt: string;
+    lastSeenAt: string;
+    enabled: boolean;
+    userAgent?: string;
+  }>;
   oauthStates: OAuthStateRecord[];
+  usedAuthCodes?: Array<{ code: string; usedAt: number }>;
+  emailAnalyses: (EmailAnalysisRecord & { userId: string })[];
 }
 
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -135,9 +226,11 @@ function getInitialDatabase(): DatabaseSchema {
     securitySettings: {
       [defaultUserId]: { ...initialSecuritySettings },
     },
+    notifications: [],
     notificationDeliveries: [],
     notificationDevices: [],
     oauthStates: [],
+    emailAnalyses: [],
   };
 }
 
@@ -154,6 +247,15 @@ export function loadDatabase(): DatabaseSchema {
         ...getInitialDatabase(),
         ...parsed,
       };
+      if (!dbCache!.emailAnalyses) {
+        dbCache!.emailAnalyses = [];
+      }
+      if (!dbCache!.notifications) {
+        dbCache!.notifications = [];
+      }
+      if (!dbCache!.notificationDeliveries) {
+        dbCache!.notificationDeliveries = [];
+      }
       return dbCache!;
     } catch (err) {
       console.error('Error reading database file, using initial data:', err);
@@ -217,6 +319,10 @@ export const db = {
       data.securitySettings[user.id] = { ...initialSecuritySettings };
     }
     saveDatabase();
+
+    if (user.id !== 'user-default') {
+      syncToFirestore(() => FirestoreDb.createUser(user as any));
+    }
     return user;
   },
 
@@ -226,6 +332,10 @@ export const db = {
     if (idx === -1) return null;
     data.users[idx] = { ...data.users[idx], ...patch, updatedAt: new Date().toISOString() };
     saveDatabase();
+
+    if (userId !== 'user-default') {
+      syncToFirestore(() => FirestoreDb.updateUser(userId, patch as any));
+    }
     return data.users[idx];
   },
 
@@ -246,6 +356,15 @@ export const db = {
     if (userAccounts.length >= 10) {
       throw new Error('Account limit reached. Maximum 10 connected email accounts permitted.');
     }
+    const duplicate = userAccounts.find(
+      (a) =>
+        a.provider === account.provider &&
+        a.emailAddress.toLowerCase() === account.emailAddress.toLowerCase() &&
+        a.status !== 'Disconnected'
+    );
+    if (duplicate) {
+      throw new Error(`Duplicate account rejected: An account for ${account.emailAddress} is already connected.`);
+    }
     const record = { ...account, userId };
     data.emailAccounts.push(record);
     // Initialize sync state
@@ -258,6 +377,10 @@ export const db = {
       syncedCount: 0,
     });
     saveDatabase();
+
+    if (userId !== 'user-default') {
+      syncToFirestore(() => FirestoreDb.addAccount(userId, account));
+    }
     return account;
   },
 
@@ -267,6 +390,10 @@ export const db = {
     if (idx === -1) return null;
     data.emailAccounts[idx] = { ...data.emailAccounts[idx], ...patch };
     saveDatabase();
+
+    if (userId !== 'user-default') {
+      syncToFirestore(() => FirestoreDb.updateAccount(userId, accountId, patch as any));
+    }
     return data.emailAccounts[idx];
   },
 
@@ -278,6 +405,10 @@ export const db = {
     data.emails = data.emails.filter((e) => !(e.userId === userId && e.accountId === accountId));
     data.emailSyncState = data.emailSyncState.filter((s) => !(s.userId === userId && s.accountId === accountId));
     saveDatabase();
+
+    if (userId !== 'user-default') {
+      syncToFirestore(() => FirestoreDb.deleteAccount(userId, accountId));
+    }
     return data.emailAccounts.length < initialLen;
   },
 
@@ -304,6 +435,10 @@ export const db = {
       });
     }
     saveDatabase();
+
+    if (userId !== 'user-default') {
+      syncToFirestore(() => FirestoreDb.updateSyncState(userId, accountId, patch as any));
+    }
   },
 
   // Emails
@@ -319,13 +454,27 @@ export const db = {
 
   saveEmail(userId: string, email: Email): Email {
     const data = loadDatabase();
-    const existingIdx = data.emails.findIndex((e) => e.userId === userId && e.id === email.id);
+    const existingIdx = data.emails.findIndex(
+      (e) =>
+        e.userId === userId &&
+        (e.id === email.id ||
+          (Boolean(email.providerMessageId) && e.providerMessageId === email.providerMessageId) ||
+          (Boolean(email.threadId) &&
+            e.threadId === email.threadId &&
+            e.subject === email.subject &&
+            e.sender === email.sender &&
+            Math.abs(new Date(e.receivedAt).getTime() - new Date(email.receivedAt).getTime()) < 2000))
+    );
     if (existingIdx !== -1) {
-      data.emails[existingIdx] = { ...email, userId };
+      data.emails[existingIdx] = { ...data.emails[existingIdx], ...email, userId };
     } else {
       data.emails.unshift({ ...email, userId });
     }
     saveDatabase();
+
+    if (userId !== 'user-default') {
+      syncToFirestore(() => FirestoreDb.saveEmail(userId, email));
+    }
     return email;
   },
 
@@ -494,12 +643,77 @@ export const db = {
     return data.securitySettings[userId];
   },
 
-  // Deliveries & Deduplication
-  getDeliveries(userId: string, options?: { threadId?: string; withinMs?: number }): NotificationDeliveryRecord[] {
+  // Notifications
+  getNotifications(userId: string): NotificationRecord[] {
     const data = loadDatabase();
-    let res = data.notificationDeliveries.filter((d) => d.userId === userId);
+    return (data.notifications || [])
+      .filter((n) => n.userId === userId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  },
+
+  getNotification(userId: string, id: string): NotificationRecord | null {
+    const data = loadDatabase();
+    return (data.notifications || []).find((n) => n.userId === userId && n.id === id) || null;
+  },
+
+  saveNotification(userId: string, notif: NotificationRecord): NotificationRecord {
+    const data = loadDatabase();
+    if (!data.notifications) data.notifications = [];
+    const idx = data.notifications.findIndex((n) => n.userId === userId && n.id === notif.id);
+    const item = { ...notif, userId };
+    if (idx >= 0) {
+      data.notifications[idx] = item;
+    } else {
+      data.notifications.unshift(item);
+      // Keep max 500 notifications
+      if (data.notifications.length > 500) {
+        data.notifications.pop();
+      }
+    }
+    saveDatabase();
+    return item;
+  },
+
+  markNotificationRead(userId: string, notifId: string): boolean {
+    const data = loadDatabase();
+    if (!data.notifications) return false;
+    const notif = data.notifications.find((n) => n.userId === userId && n.id === notifId);
+    if (notif) {
+      notif.read = true;
+      saveDatabase();
+      return true;
+    }
+    return false;
+  },
+
+  // Deliveries & Deduplication
+  getDeliveries(
+    userId: string,
+    options?: {
+      notificationId?: string;
+      threadId?: string;
+      emailId?: string;
+      channel?: string;
+      status?: string;
+      withinMs?: number;
+    }
+  ): NotificationDeliveryRecord[] {
+    const data = loadDatabase();
+    let res = (data.notificationDeliveries || []).filter((d) => d.userId === userId);
+    if (options?.notificationId) {
+      res = res.filter((d) => d.notificationId === options.notificationId);
+    }
     if (options?.threadId) {
       res = res.filter((d) => d.threadId === options.threadId);
+    }
+    if (options?.emailId) {
+      res = res.filter((d) => d.emailId === options.emailId);
+    }
+    if (options?.channel) {
+      res = res.filter((d) => d.channel === options.channel);
+    }
+    if (options?.status) {
+      res = res.filter((d) => d.status === options.status);
     }
     if (options?.withinMs) {
       const cutoff = Date.now() - options.withinMs;
@@ -508,14 +722,129 @@ export const db = {
     return res;
   },
 
+  getDeliveryById(id: string): NotificationDeliveryRecord | null {
+    const data = loadDatabase();
+    return (data.notificationDeliveries || []).find((d) => d.id === id) || null;
+  },
+
   recordDelivery(record: NotificationDeliveryRecord): void {
     const data = loadDatabase();
-    data.notificationDeliveries.unshift(record);
-    // Keep max 500 deliveries
-    if (data.notificationDeliveries.length > 500) {
-      data.notificationDeliveries.pop();
+    if (!data.notificationDeliveries) data.notificationDeliveries = [];
+    const idx = data.notificationDeliveries.findIndex((d) => d.id === record.id);
+    if (idx >= 0) {
+      data.notificationDeliveries[idx] = record;
+    } else {
+      data.notificationDeliveries.unshift(record);
+      // Keep max 1000 deliveries
+      if (data.notificationDeliveries.length > 1000) {
+        data.notificationDeliveries.pop();
+      }
     }
     saveDatabase();
+  },
+
+  updateDelivery(id: string, patch: Partial<NotificationDeliveryRecord>): NotificationDeliveryRecord | null {
+    const data = loadDatabase();
+    if (!data.notificationDeliveries) return null;
+    const delivery = data.notificationDeliveries.find((d) => d.id === id);
+    if (!delivery) return null;
+    Object.assign(delivery, patch);
+    saveDatabase();
+    return delivery;
+  },
+
+  // Notification Devices
+  getNotificationDevices(userId: string, onlyEnabled = true) {
+    const data = loadDatabase();
+    return (data.notificationDevices || []).filter((d) => {
+      if (d.userId !== userId) return false;
+      if (onlyEnabled && d.enabled === false) return false;
+      return true;
+    });
+  },
+
+  getAllNotificationDevices(userId: string) {
+    const data = loadDatabase();
+    return (data.notificationDevices || []).filter((d) => d.userId === userId);
+  },
+
+  registerNotificationDevice(
+    userId: string,
+    device: {
+      deviceId: string;
+      platform: 'web' | 'android' | 'ios';
+      pushToken: string;
+      createdAt?: string;
+      lastSeenAt?: string;
+      enabled?: boolean;
+      userAgent?: string;
+    }
+  ) {
+    const data = loadDatabase();
+    if (!data.notificationDevices) data.notificationDevices = [];
+    const existingIdx = data.notificationDevices.findIndex(
+      (d) => d.userId === userId && (d.deviceId === device.deviceId || d.pushToken === device.pushToken)
+    );
+    const now = new Date().toISOString();
+    const item = {
+      id: device.deviceId,
+      userId,
+      deviceId: device.deviceId,
+      platform: device.platform || 'web',
+      pushToken: device.pushToken,
+      createdAt: (existingIdx >= 0 && data.notificationDevices[existingIdx]?.createdAt) || device.createdAt || now,
+      lastSeenAt: now,
+      enabled: device.enabled ?? true,
+      userAgent: device.userAgent,
+    };
+    if (existingIdx >= 0) {
+      data.notificationDevices[existingIdx] = { ...data.notificationDevices[existingIdx], ...item };
+    } else {
+      data.notificationDevices.push(item);
+    }
+    saveDatabase();
+    return item;
+  },
+
+  updateNotificationDevice(userId: string, deviceId: string, updates: Partial<{ enabled: boolean; pushToken: string; lastSeenAt: string }>) {
+    const data = loadDatabase();
+    if (!data.notificationDevices) return null;
+    const idx = data.notificationDevices.findIndex((d) => d.userId === userId && (d.deviceId === deviceId || d.id === deviceId));
+    if (idx >= 0 && data.notificationDevices[idx]) {
+      data.notificationDevices[idx] = {
+        ...data.notificationDevices[idx],
+        ...updates,
+        lastSeenAt: updates.lastSeenAt || new Date().toISOString(),
+      };
+      saveDatabase();
+      return data.notificationDevices[idx];
+    }
+    return null;
+  },
+
+  removeNotificationDevice(userId: string, deviceIdOrId: string) {
+    const data = loadDatabase();
+    if (!data.notificationDevices) return false;
+    const initialLen = data.notificationDevices.length;
+    data.notificationDevices = data.notificationDevices.filter(
+      (d) => !(d.userId === userId && (d.deviceId === deviceIdOrId || d.id === deviceIdOrId || d.pushToken === deviceIdOrId))
+    );
+    const removed = data.notificationDevices.length < initialLen;
+    if (removed) {
+      saveDatabase();
+    }
+    return removed;
+  },
+
+  removeNotificationDeviceByToken(pushToken: string) {
+    const data = loadDatabase();
+    if (!data.notificationDevices) return [];
+    const removedDevices = data.notificationDevices.filter((d) => d.pushToken === pushToken);
+    data.notificationDevices = data.notificationDevices.filter((d) => d.pushToken !== pushToken);
+    if (removedDevices.length > 0) {
+      saveDatabase();
+    }
+    return removedDevices;
   },
 
   // OAuth States
@@ -540,5 +869,85 @@ export const db = {
     const [found] = data.oauthStates.splice(idx, 1);
     saveDatabase();
     return found;
+  },
+
+  // AI Analyses (Separately Persisted)
+  getAnalysis(userId: string, emailId: string): EmailAnalysisRecord | null {
+    const data = loadDatabase();
+    return (data.emailAnalyses || []).find((a) => a.userId === userId && a.emailId === emailId) || null;
+  },
+
+  saveAnalysis(userId: string, record: EmailAnalysisRecord): EmailAnalysisRecord {
+    const data = loadDatabase();
+    data.emailAnalyses = data.emailAnalyses || [];
+    const idx = data.emailAnalyses.findIndex((a) => a.userId === userId && a.emailId === record.emailId);
+    if (idx !== -1) {
+      data.emailAnalyses[idx] = { ...record, userId };
+    } else {
+      data.emailAnalyses.unshift({ ...record, userId });
+    }
+    saveDatabase();
+    return record;
+  },
+
+  deleteAnalysis(userId: string, emailId: string): boolean {
+    const data = loadDatabase();
+    if (!data.emailAnalyses) return false;
+    const initialLen = data.emailAnalyses.length;
+    data.emailAnalyses = data.emailAnalyses.filter((a) => !(a.userId === userId && a.emailId === emailId));
+    saveDatabase();
+    return data.emailAnalyses.length < initialLen;
+  },
+
+  getAllAnalyses(userId: string): EmailAnalysisRecord[] {
+    const data = loadDatabase();
+    return (data.emailAnalyses || []).filter((a) => a.userId === userId);
+  },
+
+  // Aliases and helpers for notification engine & WhatsApp service
+  getUsers(): UserRecord[] {
+    const data = loadDatabase();
+    return data.users || [];
+  },
+
+  getAllUsers(): UserRecord[] {
+    const data = loadDatabase();
+    return data.users || [];
+  },
+
+  getNotificationDeliveries(
+    userId?: string,
+    options?: {
+      notificationId?: string;
+      threadId?: string;
+      emailId?: string;
+      channel?: string;
+      status?: string;
+      withinMs?: number;
+    }
+  ): NotificationDeliveryRecord[] {
+    if (!userId) {
+      const data = loadDatabase();
+      return data.notificationDeliveries || [];
+    }
+    return this.getDeliveries(userId, options);
+  },
+
+  addNotificationDelivery(record: NotificationDeliveryRecord): void {
+    this.recordDelivery(record);
+  },
+
+  updateNotificationDelivery(
+    id: string,
+    patch: Partial<NotificationDeliveryRecord>
+  ): NotificationDeliveryRecord | null {
+    return this.updateDelivery(id, patch);
+  },
+
+  saveNotificationSettings(
+    userId: string,
+    patch: Partial<NotificationSettings>
+  ): NotificationSettings {
+    return this.updateNotificationSettings(userId, patch);
   },
 };

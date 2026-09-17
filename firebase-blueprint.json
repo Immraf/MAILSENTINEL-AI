@@ -24,122 +24,326 @@
         "provider": { "type": "string", "enum": ["gmail", "outlook", "demo"], "maxLength": 32 },
         "emailAddress": { "type": "string", "maxLength": 256 },
         "displayName": { "type": "string", "maxLength": 128 },
-        "accountLabel": { "type": "string", "maxLength": 64 },
-        "connectionStatus": { "type": "string", "enum": ["active", "syncing", "idle", "needs_reauth", "error"], "maxLength": 32 },
-        "lastSuccessfulSync": { "type": "string", "maxLength": 64 },
-        "lastSyncError": { "type": "string", "maxLength": 512 },
+        "status": { "type": "string", "enum": ["active", "syncing", "idle", "needs_reauth", "error"], "maxLength": 32 },
+        "lastSyncedAt": { "type": "string", "maxLength": 64 },
+        "totalEmails": { "type": "number" },
+        "threatsDetected": { "type": "number" },
+        "isPrimary": { "type": "boolean" },
         "createdAt": { "type": "string", "maxLength": 64 },
         "updatedAt": { "type": "string", "maxLength": 64 }
       },
-      "required": ["id", "userId", "provider", "emailAddress", "connectionStatus"]
+      "required": ["id", "userId", "provider", "emailAddress", "status"]
+    },
+    "EmailSyncState": {
+      "title": "EmailSyncState",
+      "description": "Account synchronization state (server-managed)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "accountId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["idle", "syncing", "error", "needs_reauth"], "maxLength": 32 },
+        "lastSyncedAt": { "type": "string", "maxLength": 64 },
+        "progressPercent": { "type": "number" },
+        "syncedCount": { "type": "number" },
+        "errorMessage": { "type": "string", "maxLength": 512 },
+        "providerHistoryId": { "type": "string", "maxLength": 256 },
+        "deltaToken": { "type": "string", "maxLength": 512 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "accountId", "userId", "status"]
     },
     "Email": {
       "title": "Email",
-      "description": "Stored email item with personal management metadata and AI indicators",
+      "description": "Synchronized email record with metadata and embedded AI & security findings",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
         "userId": { "type": "string", "maxLength": 128 },
         "accountId": { "type": "string", "maxLength": 128 },
-        "messageId": { "type": "string", "maxLength": 256 },
+        "accountEmail": { "type": "string", "maxLength": 256 },
+        "provider": { "type": "string", "maxLength": 32 },
         "threadId": { "type": "string", "maxLength": 256 },
         "sender": { "type": "string", "maxLength": 256 },
         "senderName": { "type": "string", "maxLength": 128 },
+        "senderDomain": { "type": "string", "maxLength": 128 },
         "subject": { "type": "string", "maxLength": 512 },
-        "date": { "type": "string", "maxLength": 64 },
-        "snippet": { "type": "string", "maxLength": 1024 },
-        "importance": { "type": "string", "enum": ["HIGH", "NORMAL", "LOW"], "maxLength": 16 },
-        "urgency": { "type": "string", "enum": ["CRITICAL", "URGENT", "NORMAL", "LOW"], "maxLength": 16 },
+        "bodySnippet": { "type": "string", "maxLength": 2048 },
+        "receivedAt": { "type": "string", "maxLength": 64 },
         "isRead": { "type": "boolean" },
-        "isQuarantined": { "type": "boolean" },
         "isArchived": { "type": "boolean" },
-        "hasAttachments": { "type": "boolean" },
+        "isQuarantined": { "type": "boolean" },
+        "hasAttachment": { "type": "boolean" },
         "createdAt": { "type": "string", "maxLength": 64 },
         "updatedAt": { "type": "string", "maxLength": 64 }
       },
-      "required": ["id", "userId", "accountId", "sender", "subject"]
+      "required": ["id", "userId", "accountId", "sender", "subject", "receivedAt"]
     },
-    "EmailSummary": {
-      "title": "EmailSummary",
-      "description": "AI-generated personal management email summary and task/calendar extractions",
+    "EmailThread": {
+      "title": "EmailThread",
+      "description": "Aggregated email thread container",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "accountId": { "type": "string", "maxLength": 128 },
+        "subject": { "type": "string", "maxLength": 512 },
+        "messageCount": { "type": "number" },
+        "snippet": { "type": "string", "maxLength": 1024 },
+        "lastMessageDate": { "type": "string", "maxLength": 64 },
+        "hasActionRequired": { "type": "boolean" },
+        "urgency": { "type": "string", "enum": ["low", "normal", "urgent", "critical"], "maxLength": 32 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "subject"]
+    },
+    "Attachment": {
+      "title": "Attachment",
+      "description": "Email file attachment metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "emailId": { "type": "string", "maxLength": 128 },
+        "fileName": { "type": "string", "maxLength": 256 },
+        "fileSize": { "type": "number" },
+        "mimeType": { "type": "string", "maxLength": 128 },
+        "isSafe": { "type": "boolean" },
+        "scanResult": { "type": "string", "maxLength": 256 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "emailId", "fileName"]
+    },
+    "AiAnalysis": {
+      "title": "AiAnalysis",
+      "description": "Deep Gemini intelligence classification and intent extraction",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
         "userId": { "type": "string", "maxLength": 128 },
         "emailId": { "type": "string", "maxLength": 128 },
         "summary": { "type": "string", "maxLength": 2048 },
-        "importance": { "type": "string", "maxLength": 32 },
-        "urgency": { "type": "string", "maxLength": 32 },
-        "suggestedAction": { "type": "string", "maxLength": 512 },
-        "requiresResponse": { "type": "boolean" },
-        "deadline": { "type": "string", "maxLength": 128 },
+        "priority": { "type": "string", "enum": ["Low", "Medium", "High", "Critical"], "maxLength": 32 },
+        "priorityScore": { "type": "number" },
         "category": { "type": "string", "maxLength": 64 },
-        "createdAt": { "type": "string", "maxLength": 64 }
+        "sentiment": { "type": "string", "maxLength": 32 },
+        "actionRequired": { "type": "boolean" },
+        "recommendedAction": { "type": "string", "maxLength": 512 },
+        "deadline": { "type": "string", "maxLength": 128 },
+        "confidence": { "type": "number" },
+        "analyzedAt": { "type": "string", "maxLength": 64 }
       },
-      "required": ["id", "userId", "emailId", "summary"]
+      "required": ["id", "userId", "emailId", "summary", "priority"]
     },
-    "CalendarEvent": {
-      "title": "CalendarEvent",
-      "description": "Calendar event detected from email or scheduled to Google Calendar",
+    "ExtractedEntity": {
+      "title": "ExtractedEntity",
+      "description": "Named entity or key parameter detected from email",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
         "userId": { "type": "string", "maxLength": 128 },
         "emailId": { "type": "string", "maxLength": 128 },
-        "googleEventId": { "type": "string", "maxLength": 256 },
-        "title": { "type": "string", "maxLength": 256 },
-        "description": { "type": "string", "maxLength": 2048 },
-        "start": { "type": "string", "maxLength": 64 },
-        "end": { "type": "string", "maxLength": 64 },
-        "location": { "type": "string", "maxLength": 256 },
-        "status": { "type": "string", "maxLength": 32 },
+        "entityType": { "type": "string", "maxLength": 64 },
+        "value": { "type": "string", "maxLength": 512 },
+        "context": { "type": "string", "maxLength": 512 },
+        "confidence": { "type": "number" },
         "createdAt": { "type": "string", "maxLength": 64 }
       },
-      "required": ["id", "userId", "title", "start"]
+      "required": ["id", "userId", "emailId", "entityType", "value"]
+    },
+    "SecurityAnalysis": {
+      "title": "SecurityAnalysis",
+      "description": "Email security evaluation, phishing score, and SPF/DKIM/DMARC audits",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "emailId": { "type": "string", "maxLength": 128 },
+        "classification": { "type": "string", "enum": ["SAFE", "SUSPICIOUS", "PHISHING", "MALICIOUS"], "maxLength": 32 },
+        "riskScore": { "type": "number" },
+        "riskLevel": { "type": "string", "maxLength": 32 },
+        "confidenceScore": { "type": "number" },
+        "explanation": { "type": "string", "maxLength": 2048 },
+        "scannedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "emailId", "classification", "riskScore"]
+    },
+    "SecurityIndicator": {
+      "title": "SecurityIndicator",
+      "description": "Specific threat heuristic flag or suspicious signature",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "emailId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "maxLength": 64 },
+        "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"], "maxLength": 32 },
+        "description": { "type": "string", "maxLength": 512 },
+        "detectedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "emailId", "severity", "description"]
     },
     "Task": {
       "title": "Task",
-      "description": "Action item or deadline converted to a personal Google Task",
+      "description": "Actionable task or follow-up item",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
         "userId": { "type": "string", "maxLength": 128 },
         "emailId": { "type": "string", "maxLength": 128 },
-        "googleTaskId": { "type": "string", "maxLength": 256 },
         "title": { "type": "string", "maxLength": 256 },
-        "notes": { "type": "string", "maxLength": 2048 },
+        "description": { "type": "string", "maxLength": 2048 },
         "due": { "type": "string", "maxLength": 64 },
         "status": { "type": "string", "enum": ["needsAction", "completed"], "maxLength": 32 },
-        "createdAt": { "type": "string", "maxLength": 64 }
+        "priority": { "type": "string", "enum": ["low", "medium", "high"], "maxLength": 32 },
+        "googleTaskId": { "type": "string", "maxLength": 256 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
       },
       "required": ["id", "userId", "title", "status"]
     },
-    "DriveAttachment": {
-      "title": "DriveAttachment",
-      "description": "Google Drive document linked to an email via Google Picker or export",
+    "Deadline": {
+      "title": "Deadline",
+      "description": "Detected hard delivery date or response requirement",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
         "userId": { "type": "string", "maxLength": 128 },
         "emailId": { "type": "string", "maxLength": 128 },
-        "fileId": { "type": "string", "maxLength": 256 },
-        "fileName": { "type": "string", "maxLength": 256 },
-        "mimeType": { "type": "string", "maxLength": 128 },
-        "url": { "type": "string", "maxLength": 512 },
+        "title": { "type": "string", "maxLength": 256 },
+        "deadline": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["pending", "completed", "missed"], "maxLength": 32 },
+        "urgency": { "type": "string", "enum": ["normal", "urgent", "critical"], "maxLength": 32 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "title", "deadline", "status"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "In-app alert or notification banner",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "emailId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 256 },
+        "description": { "type": "string", "maxLength": 1024 },
+        "severity": { "type": "string", "enum": ["info", "warning", "high", "critical"], "maxLength": 32 },
+        "channel": { "type": "string", "maxLength": 32 },
+        "read": { "type": "boolean" },
         "createdAt": { "type": "string", "maxLength": 64 }
       },
-      "required": ["id", "userId", "fileId", "fileName"]
+      "required": ["id", "userId", "title", "severity", "read"]
+    },
+    "NotificationDelivery": {
+      "title": "NotificationDelivery",
+      "description": "Server-side notification delivery audit and deduplication log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "notificationId": { "type": "string", "maxLength": 128 },
+        "emailId": { "type": "string", "maxLength": 128 },
+        "channel": { "type": "string", "enum": ["push", "whatsapp", "browser", "digest"], "maxLength": 32 },
+        "status": { "type": "string", "maxLength": 64 },
+        "reason": { "type": "string", "maxLength": 256 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "channel", "status", "createdAt"]
+    },
+    "NotificationDevice": {
+      "title": "NotificationDevice",
+      "description": "Registered browser/device for Firebase Cloud Messaging push notifications",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "deviceId": { "type": "string", "maxLength": 128 },
+        "platform": { "type": "string", "enum": ["web", "ios", "android"], "maxLength": 32 },
+        "pushToken": { "type": "string", "maxLength": 512 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "lastSeenAt": { "type": "string", "maxLength": 64 },
+        "registeredAt": { "type": "string", "maxLength": 64 },
+        "lastActiveAt": { "type": "string", "maxLength": 64 },
+        "enabled": { "type": "boolean" },
+        "userAgent": { "type": "string", "maxLength": 256 }
+      },
+      "required": ["id", "userId", "platform", "pushToken"]
+    },
+    "NotificationPreferences": {
+      "title": "NotificationPreferences",
+      "description": "User notification thresholds, quiet hours, and channel settings",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "pushEnabled": { "type": "boolean" },
+        "whatsappEnabled": { "type": "boolean" },
+        "whatsappPhone": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "pushEnabled"]
+    },
+    "SecurityRule": {
+      "title": "SecurityRule",
+      "description": "Configurable heuristic security and threat interception rule",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 256 },
+        "type": { "type": "string", "maxLength": 64 },
+        "action": { "type": "string", "maxLength": 64 },
+        "isEnabled": { "type": "boolean" },
+        "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"], "maxLength": 32 },
+        "matchCount": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "name", "action", "isEnabled"]
+    },
+    "UserRule": {
+      "title": "UserRule",
+      "description": "Custom user routing automation rule",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 256 },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "name", "isActive"]
+    },
+    "QuarantineItem": {
+      "title": "QuarantineItem",
+      "description": "Quarantined threat email isolated from regular inbox",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "emailId": { "type": "string", "maxLength": 128 },
+        "quarantinedAt": { "type": "string", "maxLength": 64 },
+        "reason": { "type": "string", "maxLength": 512 },
+        "riskScore": { "type": "number" },
+        "status": { "type": "string", "enum": ["quarantined", "released", "deleted"], "maxLength": 32 }
+      },
+      "required": ["id", "userId", "emailId", "quarantinedAt", "status"]
     },
     "AuditLog": {
       "title": "AuditLog",
-      "description": "Account, security, and sync activity audit record",
+      "description": "Immutable security and operational activity log",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
         "userId": { "type": "string", "maxLength": 128 },
         "action": { "type": "string", "maxLength": 128 },
-        "category": { "type": "string", "maxLength": 64 },
         "details": { "type": "string", "maxLength": 1024 },
+        "category": { "type": "string", "maxLength": 64 },
+        "severity": { "type": "string", "maxLength": 32 },
         "timestamp": { "type": "string", "maxLength": 64 }
       },
       "required": ["id", "userId", "action", "timestamp"]
@@ -148,35 +352,83 @@
   "firestore": {
     "/users/{userId}": {
       "schema": "User",
-      "description": "User profile document"
+      "description": "User profile root document"
     },
     "/users/{userId}/emailAccounts/{accountId}": {
       "schema": "EmailAccount",
-      "description": "User connected email accounts (up to 10 accounts)"
+      "description": "Connected email accounts"
+    },
+    "/users/{userId}/emailSyncState/{accountId}": {
+      "schema": "EmailSyncState",
+      "description": "Provider sync state (server-managed)"
     },
     "/users/{userId}/emails/{emailId}": {
       "schema": "Email",
-      "description": "Synchronized emails for the user"
+      "description": "Stored user emails"
     },
-    "/users/{userId}/emailSummaries/{summaryId}": {
-      "schema": "EmailSummary",
-      "description": "AI intelligence and summaries"
+    "/users/{userId}/emailThreads/{threadId}": {
+      "schema": "EmailThread",
+      "description": "Aggregated conversation threads"
     },
-    "/users/{userId}/calendarEvents/{eventId}": {
-      "schema": "CalendarEvent",
-      "description": "Google Calendar and email-detected events"
+    "/users/{userId}/attachments/{attachmentId}": {
+      "schema": "Attachment",
+      "description": "Email file attachments"
+    },
+    "/users/{userId}/aiAnalysis/{analysisId}": {
+      "schema": "AiAnalysis",
+      "description": "AI intelligence analysis results"
+    },
+    "/users/{userId}/extractedEntities/{entityId}": {
+      "schema": "ExtractedEntity",
+      "description": "Entities extracted from email"
+    },
+    "/users/{userId}/securityAnalysis/{analysisId}": {
+      "schema": "SecurityAnalysis",
+      "description": "Security audit and risk classifications"
+    },
+    "/users/{userId}/securityIndicators/{indicatorId}": {
+      "schema": "SecurityIndicator",
+      "description": "Security heuristic indicators"
     },
     "/users/{userId}/tasks/{taskId}": {
       "schema": "Task",
-      "description": "Google Tasks and actionable items"
+      "description": "Actionable task items"
     },
-    "/users/{userId}/driveAttachments/{attachmentId}": {
-      "schema": "DriveAttachment",
-      "description": "Google Drive files linked via Picker or exported dossiers"
+    "/users/{userId}/deadlines/{deadlineId}": {
+      "schema": "Deadline",
+      "description": "Action deadlines and timelines"
+    },
+    "/users/{userId}/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "In-app notifications"
+    },
+    "/users/{userId}/notificationDeliveries/{deliveryId}": {
+      "schema": "NotificationDelivery",
+      "description": "Notification delivery tracking (server-managed)"
+    },
+    "/users/{userId}/notificationDevices/{deviceId}": {
+      "schema": "NotificationDevice",
+      "description": "Registered push notification devices"
+    },
+    "/users/{userId}/notificationPreferences/{prefId}": {
+      "schema": "NotificationPreferences",
+      "description": "User notification channel preferences"
+    },
+    "/users/{userId}/securityRules/{ruleId}": {
+      "schema": "SecurityRule",
+      "description": "Custom and default security rules"
+    },
+    "/users/{userId}/userRules/{ruleId}": {
+      "schema": "UserRule",
+      "description": "User custom automation rules"
+    },
+    "/users/{userId}/quarantineItems/{itemId}": {
+      "schema": "QuarantineItem",
+      "description": "Quarantined emails"
     },
     "/users/{userId}/auditLogs/{logId}": {
       "schema": "AuditLog",
-      "description": "Audit trail of operations"
+      "description": "Security and system audit logs"
     }
   }
 }

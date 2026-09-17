@@ -20,12 +20,13 @@ export function analyzeEmailSecurityHeuristics(params: {
   priorityLevel: PriorityLevel;
   whyPriority: string[];
 } {
-  const { sender, senderName, subject, body, authResults, attachments = [] } = params;
+  const { sender = '', senderName = '', subject = '', body = '', authResults, attachments = [] } = params || {};
 
-  const senderEmail = sender.toLowerCase().trim();
+  const senderEmail = (sender || '').toLowerCase().trim();
+  const senderNameSafe = (senderName || '').toLowerCase().trim();
   const senderDomain = senderEmail.includes('@') ? senderEmail.split('@')[1] : '';
-  const bodyLower = body.toLowerCase();
-  const subjectLower = subject.toLowerCase();
+  const bodyLower = (body || (params as any)?.bodyText || (params as any)?.snippet || '').toLowerCase();
+  const subjectLower = (subject || '').toLowerCase();
 
   const indicators: SecurityIndicator[] = [];
   let riskScore = 0;
@@ -83,7 +84,7 @@ export function analyzeEmailSecurityHeuristics(params: {
   let matchedBrandName: string | undefined;
 
   for (const item of commonBrands) {
-    const nameMatch = senderName.toLowerCase().includes(item.brand.toLowerCase());
+    const nameMatch = senderNameSafe.includes(item.brand.toLowerCase());
     const domainMatch = item.domains.some((d) => senderDomain === d || senderDomain.endsWith('.' + d));
 
     if (nameMatch && !domainMatch) {

@@ -1,6 +1,9 @@
 import { db } from './db';
 import { Email, EmailAccount } from '../src/types';
 import { analyzeEmailSecurityHeuristics } from '../src/utils/securityEngine';
+import { syncGmailAccount } from './gmailSync';
+import { syncOutlookAccount } from './outlookSync';
+import { processEmailThroughIntelligencePipeline } from './aiPipeline';
 
 interface ActiveJob {
   accountId: string;
@@ -27,7 +30,7 @@ export async function startAccountSync(userId: string, accountId: string): Promi
     status: 'syncing',
     progressPercent: 15,
   });
-  db.updateAccount(userId, accountId, { status: 'syncing' });
+  db.updateAccount(userId, accountId, { status: 'Syncing' });
 
   // Run asynchronously
   setTimeout(async () => {
@@ -39,7 +42,7 @@ export async function startAccountSync(userId: string, accountId: string): Promi
         status: 'error',
         errorMessage: err?.message || 'Sync failed',
       });
-      db.updateAccount(userId, accountId, { status: 'error' });
+      db.updateAccount(userId, accountId, { status: 'Error' });
     } finally {
       activeJobs.delete(jobKey);
     }
@@ -53,12 +56,14 @@ async function executeSync(userId: string, accountId: string): Promise<void> {
   // Check if real OAuth tokens are present for this account
   const rawAccounts = (db as any).getAccounts(userId) as any[];
   const rawAcc = rawAccounts.find((a) => a.id === accountId);
-  const accessToken = rawAcc?.accessTokenEncrypted;
+  const hasTokens = Boolean(rawAcc?.accessTokenEncrypted || rawAcc?.refreshTokenEncrypted);
 
-  if (accessToken && account.provider === 'gmail') {
-    await syncRealGmailAccount(userId, account, accessToken);
-  } else if (accessToken && account.provider === 'outlook') {
-    await syncRealOutlookAccount(userId, account, accessToken);
+  if (account.provider === 'gmail' && hasTokens) {
+    await syncGmailAccount(userId, accountId);
+  } else if (account.provider === 'outlook') {
+    await syncOutlookAccount(userId, accountId);
+  } else if (account.provider === 'gmail') {
+    await syncGmailAccount(userId, accountId);
   } else {
     // Demo Mode Synchronization
     await syncDemoAccount(userId, account);
@@ -181,7 +186,11 @@ async function syncRealGmailAccount(userId: string, account: EmailAccount, acces
           securityAnalysis: heuristic.securityAnalysis,
         };
 
-        db.saveEmail(userId, emailRecord);
+        try {
+          await processEmailThroughIntelligencePipeline(emailRecord, userId);
+        } catch {
+          db.saveEmail(userId, emailRecord);
+        }
       } catch (msgErr) {
         console.warn(`Error parsing message ${msgRef.id}:`, msgErr);
       }
@@ -278,7 +287,11 @@ async function syncRealOutlookAccount(userId: string, account: EmailAccount, acc
         securityAnalysis: heuristic.securityAnalysis,
       };
 
-      db.saveEmail(userId, emailRecord);
+      try {
+        await processEmailThroughIntelligencePipeline(emailRecord, userId);
+      } catch {
+        db.saveEmail(userId, emailRecord);
+      }
     }
 
     db.updateSyncState(userId, account.id, {

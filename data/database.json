@@ -38,11 +38,13 @@
       "provider": "outlook",
       "emailAddress": "alex.carter@apextech.io",
       "displayName": "Alex Carter (Apex Work)",
-      "status": "active",
-      "lastSyncedAt": "2026-09-11T07:48:00Z",
-      "totalEmails": 312,
-      "threatsDetected": 5,
-      "userId": "user-default"
+      "status": "Connected",
+      "lastSyncedAt": "2026-09-15T10:10:58.150Z",
+      "totalEmails": 6,
+      "threatsDetected": 2,
+      "userId": "user-default",
+      "errorMessage": "Reauthentication required.",
+      "unreadCount": 3
     },
     {
       "id": "acc-4",
@@ -54,6 +56,132 @@
       "totalEmails": 67,
       "threatsDetected": 0,
       "userId": "user-default"
+    },
+    {
+      "id": "acc-test-gmail-1",
+      "provider": "gmail",
+      "emailAddress": "alex.chen@cybersec-defense.io",
+      "displayName": "Alex Chen",
+      "status": "Connected",
+      "lastSyncedAt": "2026-09-15T09:29:53.846Z",
+      "totalEmails": 120,
+      "threatsDetected": 2,
+      "accessTokenEncrypted": "enc:v1:d103d4753a80c2bd270a9a02:52d02dedd9c3213207b4b57ee9e2309c:048e8c71c059cd8b4e012e7bd06b20951718a95ad6e8",
+      "refreshTokenEncrypted": "enc:v1:564d0f0e706cabdfcd2fc11e:7071cc4dea2b0524097678bc6f07cf84:07478cee6146845580f3c2684ea2d1174aa93797e53cae",
+      "userId": "test-user-sentinel-1"
+    },
+    {
+      "id": "acc-test-gmail-2",
+      "provider": "gmail",
+      "emailAddress": "analyst2@cybersec-defense.io",
+      "displayName": "Analyst 2",
+      "status": "Connected",
+      "lastSyncedAt": "2026-09-15T09:29:53.847Z",
+      "totalEmails": 10,
+      "threatsDetected": 0,
+      "userId": "test-user-sentinel-1"
+    },
+    {
+      "id": "acc-test-gmail-3",
+      "provider": "gmail",
+      "emailAddress": "analyst3@cybersec-defense.io",
+      "displayName": "Analyst 3",
+      "status": "Connected",
+      "lastSyncedAt": "2026-09-15T09:29:53.847Z",
+      "totalEmails": 10,
+      "threatsDetected": 0,
+      "userId": "test-user-sentinel-1"
+    },
+    {
+      "id": "acc-test-gmail-4",
+      "provider": "gmail",
+      "emailAddress": "analyst4@cybersec-defense.io",
+      "displayName": "Analyst 4",
+      "status": "Connected",
+      "lastSyncedAt": "2026-09-15T09:29:53.847Z",
+      "totalEmails": 10,
+      "threatsDetected": 0,
+      "userId": "test-user-sentinel-1"
+    },
+    {
+      "id": "acc-test-gmail-5",
+      "provider": "gmail",
+      "emailAddress": "analyst5@cybersec-defense.io",
+      "displayName": "Analyst 5",
+      "status": "Connected",
+      "lastSyncedAt": "2026-09-15T09:29:53.847Z",
+      "totalEmails": 10,
+      "threatsDetected": 0,
+      "userId": "test-user-sentinel-1"
+    },
+    {
+      "id": "acc-test-gmail-6",
+      "provider": "gmail",
+      "emailAddress": "analyst6@cybersec-defense.io",
+      "displayName": "Analyst 6",
+      "status": "Connected",
+      "lastSyncedAt": "2026-09-15T09:29:53.848Z",
+      "totalEmails": 10,
+      "threatsDetected": 0,
+      "userId": "test-user-sentinel-1"
+    },
+    {
+      "id": "acc-test-gmail-7",
+      "provider": "gmail",
+      "emailAddress": "analyst7@cybersec-defense.io",
+      "displayName": "Analyst 7",
+      "status": "Connected",
+      "lastSyncedAt": "2026-09-15T09:29:53.848Z",
+      "totalEmails": 10,
+      "threatsDetected": 0,
+      "userId": "test-user-sentinel-1"
+    },
+    {
+      "id": "acc-test-gmail-8",
+      "provider": "gmail",
+      "emailAddress": "analyst8@cybersec-defense.io",
+      "displayName": "Analyst 8",
+      "status": "Connected",
+      "lastSyncedAt": "2026-09-15T09:29:53.848Z",
+      "totalEmails": 10,
+      "threatsDetected": 0,
+      "userId": "test-user-sentinel-1"
+    },
+    {
+      "id": "acc-test-gmail-9",
+      "provider": "gmail",
+      "emailAddress": "analyst9@cybersec-defense.io",
+      "displayName": "Analyst 9",
+      "status": "Connected",
+      "lastSyncedAt": "2026-09-15T09:29:53.848Z",
+      "totalEmails": 10,
+      "threatsDetected": 0,
+      "userId": "test-user-sentinel-1"
+    },
+    {
+      "id": "acc-test-gmail-10",
+      "provider": "gmail",
+      "emailAddress": "analyst10@cybersec-defense.io",
+      "displayName": "Analyst 10",
+      "status": "Connected",
+      "lastSyncedAt": "2026-09-15T09:29:53.848Z",
+      "totalEmails": 10,
+      "threatsDetected": 0,
+      "userId": "test-user-sentinel-1"
+    },
+    {
+      "id": "acc-outlook-1789467025640",
+      "provider": "outlook",
+      "emailAddress": "sarah.jenkins@contoso365.com",
+      "displayName": "sarah.jenkins",
+      "status": "Connected",
+      "lastSyncedAt": "2026-09-15T10:11:04.728Z",
+      "totalEmails": 3,
+      "threatsDetected": 0,
+      "accessTokenEncrypted": "enc:v1:f4111f26118e68197f41555e:57a6b94a8630a77d03f96e9e488ddae5:6334cd8eeb5c4e03d415ed653241017dacec5a77a4dfcf778122f9836f18",
+      "refreshTokenEncrypted": "enc:v1:cfd0f1789dfc418eb2d42d75:e5e9d63974ad0e4e6bc7303e39a22c42:934d3af4528b389d20897a41a567a1983c937aa00027929df1903de0e060",
+      "userId": "user-default",
+      "unreadCount": 1
     }
   ],
   "emailSyncState": [
@@ -77,9 +205,12 @@
       "accountId": "acc-3",
       "userId": "user-default",
       "status": "idle",
-      "lastSyncedAt": "2026-09-11T07:48:00Z",
+      "lastSyncedAt": "2026-09-15T10:10:58.150Z",
       "progressPercent": 100,
-      "syncedCount": 312
+      "syncedCount": 6,
+      "errorMessage": "OAuth token renewal required.",
+      "deltaToken": "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=sim-1789467058150",
+      "providerHistoryId": "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=sim-1789467058150"
     },
     {
       "accountId": "acc-4",
@@ -88,9 +219,1027 @@
       "lastSyncedAt": "2026-09-11T07:30:00Z",
       "progressPercent": 100,
       "syncedCount": 67
+    },
+    {
+      "accountId": "acc-test-gmail-1",
+      "userId": "test-user-sentinel-1",
+      "status": "idle",
+      "lastSyncedAt": "2026-09-15T09:29:53.850Z",
+      "progressPercent": 100,
+      "syncedCount": 50,
+      "providerHistoryId": "12498300"
+    },
+    {
+      "accountId": "acc-test-gmail-2",
+      "userId": "test-user-sentinel-1",
+      "status": "idle",
+      "lastSyncedAt": "2026-09-15T09:29:53.847Z",
+      "progressPercent": 100,
+      "syncedCount": 0
+    },
+    {
+      "accountId": "acc-test-gmail-3",
+      "userId": "test-user-sentinel-1",
+      "status": "idle",
+      "lastSyncedAt": "2026-09-15T09:29:53.847Z",
+      "progressPercent": 100,
+      "syncedCount": 0
+    },
+    {
+      "accountId": "acc-test-gmail-4",
+      "userId": "test-user-sentinel-1",
+      "status": "idle",
+      "lastSyncedAt": "2026-09-15T09:29:53.847Z",
+      "progressPercent": 100,
+      "syncedCount": 0
+    },
+    {
+      "accountId": "acc-test-gmail-5",
+      "userId": "test-user-sentinel-1",
+      "status": "idle",
+      "lastSyncedAt": "2026-09-15T09:29:53.848Z",
+      "progressPercent": 100,
+      "syncedCount": 0
+    },
+    {
+      "accountId": "acc-test-gmail-6",
+      "userId": "test-user-sentinel-1",
+      "status": "idle",
+      "lastSyncedAt": "2026-09-15T09:29:53.848Z",
+      "progressPercent": 100,
+      "syncedCount": 0
+    },
+    {
+      "accountId": "acc-test-gmail-7",
+      "userId": "test-user-sentinel-1",
+      "status": "idle",
+      "lastSyncedAt": "2026-09-15T09:29:53.848Z",
+      "progressPercent": 100,
+      "syncedCount": 0
+    },
+    {
+      "accountId": "acc-test-gmail-8",
+      "userId": "test-user-sentinel-1",
+      "status": "idle",
+      "lastSyncedAt": "2026-09-15T09:29:53.848Z",
+      "progressPercent": 100,
+      "syncedCount": 0
+    },
+    {
+      "accountId": "acc-test-gmail-9",
+      "userId": "test-user-sentinel-1",
+      "status": "idle",
+      "lastSyncedAt": "2026-09-15T09:29:53.848Z",
+      "progressPercent": 100,
+      "syncedCount": 0
+    },
+    {
+      "accountId": "acc-test-gmail-10",
+      "userId": "test-user-sentinel-1",
+      "status": "idle",
+      "lastSyncedAt": "2026-09-15T09:29:53.848Z",
+      "progressPercent": 100,
+      "syncedCount": 0
+    },
+    {
+      "accountId": "acc-outlook-1789467025640",
+      "userId": "user-default",
+      "status": "idle",
+      "lastSyncedAt": "2026-09-15T10:11:04.728Z",
+      "progressPercent": 100,
+      "syncedCount": 3,
+      "deltaToken": "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=sim-1789467064728",
+      "providerHistoryId": "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=sim-1789467064728"
+    },
+    {
+      "accountId": "acc-1789467038064",
+      "userId": "user-default",
+      "status": "idle",
+      "lastSyncedAt": "2026-09-15T10:10:49.203Z",
+      "progressPercent": 100,
+      "syncedCount": 3,
+      "deltaToken": "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=sim-1789467049203",
+      "providerHistoryId": "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=sim-1789467049203"
     }
   ],
   "emails": [
+    {
+      "id": "outlook-ms-msg-compliance-acc-outlook-1789467025640",
+      "providerMessageId": "ms-msg-compliance-acc-outlook-1789467025640",
+      "providerThreadId": "ms-thread-sec-acc-outlook-1789467025640",
+      "accountId": "acc-outlook-1789467025640",
+      "accountEmail": "sarah.jenkins@contoso365.com",
+      "userId": "user-default",
+      "provider": "outlook",
+      "threadId": "ms-thread-sec-acc-outlook-1789467025640",
+      "sender": "sec-ops@contoso.com",
+      "senderName": "IT Security Operations",
+      "senderDomain": "contoso.com",
+      "recipients": [
+        "sarah.jenkins@contoso365.com"
+      ],
+      "subject": "SECURITY ADVISORY: Mandatory MFA Policy Enforcement for Microsoft 365",
+      "bodySnippet": "All staff are reminded that conditional access policies require FIDO2 or Authenticator app for all Outlook and Graph API endpoints starting next Monday.",
+      "bodyText": "All staff are reminded that conditional access policies require FIDO2 or Microsoft Authenticator app for all Outlook and Graph API endpoints starting next Monday.",
+      "receivedAt": "2026-09-14T22:10:26.349Z",
+      "labels": [
+        "IT Compliance"
+      ],
+      "isRead": true,
+      "isArchived": false,
+      "isQuarantined": false,
+      "hasAttachment": false,
+      "attachments": [],
+      "aiAnalysis": {
+        "category": "business",
+        "priority": "Medium",
+        "priorityScore": 38,
+        "summary": "All staff are reminded that conditional access policies require FIDO2 or Authenticator app for all Outlook and Graph API endpoints starting next Monday.",
+        "sentiment": "neutral",
+        "actionRequired": false,
+        "recommendedAction": "No immediate action required",
+        "deadline": null,
+        "extractedEntities": [],
+        "whyPriorityReasons": [
+          "Standard business operational communication"
+        ],
+        "confidence": 0.88,
+        "urgency": "Medium",
+        "tasks": [],
+        "version": "2.1.0",
+        "processedAt": "2026-09-15T10:11:04.695Z",
+        "notificationDecision": {
+          "shouldNotify": false,
+          "channel": "silent",
+          "reason": "Routine communication suppressed by notification filters"
+        }
+      },
+      "securityAnalysis": {
+        "classification": "SAFE",
+        "riskScore": 0,
+        "phishingScore": 0,
+        "spamScore": 0,
+        "spoofingScore": 0,
+        "riskLevel": "Safe",
+        "indicators": [
+          {
+            "type": "clean",
+            "severity": "info",
+            "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+            "confidence": 0.99
+          }
+        ],
+        "authResults": {
+          "spf": "PASS",
+          "dkim": "PASS",
+          "dmarc": "PASS",
+          "details": "spf=pass; dkim=pass; dmarc=pass"
+        },
+        "whyFlaggedReasons": [
+          "Clean message authentication, trusted domain."
+        ],
+        "senderDomainAnalysis": {
+          "displayName": "IT Security Operations",
+          "senderEmail": "sec-ops@contoso.com",
+          "domain": "contoso.com",
+          "isLookalike": false,
+          "replyToMatch": true
+        },
+        "urlAnalysis": {
+          "totalUrls": 0,
+          "suspiciousUrls": []
+        }
+      }
+    },
+    {
+      "id": "outlook-ms-msg-compliance-acc-3",
+      "providerMessageId": "ms-msg-compliance-acc-3",
+      "providerThreadId": "ms-thread-sec-acc-3",
+      "accountId": "acc-3",
+      "accountEmail": "alex.carter@apextech.io",
+      "userId": "user-default",
+      "provider": "outlook",
+      "threadId": "ms-thread-sec-acc-3",
+      "sender": "sec-ops@contoso.com",
+      "senderName": "IT Security Operations",
+      "senderDomain": "contoso.com",
+      "recipients": [
+        "alex.carter@apextech.io"
+      ],
+      "subject": "SECURITY ADVISORY: Mandatory MFA Policy Enforcement for Microsoft 365",
+      "bodySnippet": "All staff are reminded that conditional access policies require FIDO2 or Authenticator app for all Outlook and Graph API endpoints starting next Monday.",
+      "bodyText": "All staff are reminded that conditional access policies require FIDO2 or Microsoft Authenticator app for all Outlook and Graph API endpoints starting next Monday.",
+      "receivedAt": "2026-09-14T22:10:48.388Z",
+      "labels": [
+        "IT Compliance"
+      ],
+      "isRead": true,
+      "isArchived": false,
+      "isQuarantined": false,
+      "hasAttachment": false,
+      "attachments": [],
+      "aiAnalysis": {
+        "category": "business",
+        "priority": "Medium",
+        "priorityScore": 38,
+        "summary": "All staff are reminded that conditional access policies require FIDO2 or Authenticator app for all Outlook and Graph API endpoints starting next Monday.",
+        "sentiment": "neutral",
+        "actionRequired": false,
+        "recommendedAction": "No immediate action required",
+        "deadline": null,
+        "extractedEntities": [],
+        "whyPriorityReasons": [
+          "Standard business operational communication"
+        ],
+        "confidence": 0.88,
+        "urgency": "Medium",
+        "tasks": [],
+        "version": "2.1.0",
+        "processedAt": "2026-09-15T10:10:58.064Z",
+        "notificationDecision": {
+          "shouldNotify": false,
+          "channel": "silent",
+          "reason": "Routine communication suppressed by notification filters"
+        }
+      },
+      "securityAnalysis": {
+        "classification": "SAFE",
+        "riskScore": 0,
+        "phishingScore": 0,
+        "spamScore": 0,
+        "spoofingScore": 0,
+        "riskLevel": "Safe",
+        "indicators": [
+          {
+            "type": "clean",
+            "severity": "info",
+            "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+            "confidence": 0.99
+          }
+        ],
+        "authResults": {
+          "spf": "PASS",
+          "dkim": "PASS",
+          "dmarc": "PASS",
+          "details": "spf=pass; dkim=pass; dmarc=pass"
+        },
+        "whyFlaggedReasons": [
+          "Clean message authentication, trusted domain."
+        ],
+        "senderDomainAnalysis": {
+          "displayName": "IT Security Operations",
+          "senderEmail": "sec-ops@contoso.com",
+          "domain": "contoso.com",
+          "isLookalike": false,
+          "replyToMatch": true
+        },
+        "urlAnalysis": {
+          "totalUrls": 0,
+          "suspiciousUrls": []
+        }
+      }
+    },
+    {
+      "id": "outlook-ms-msg-finance-acc-3",
+      "providerMessageId": "ms-msg-finance-acc-3",
+      "providerThreadId": "ms-thread-fin-acc-3",
+      "accountId": "acc-3",
+      "accountEmail": "alex.carter@apextech.io",
+      "userId": "user-default",
+      "provider": "outlook",
+      "threadId": "ms-thread-fin-acc-3",
+      "sender": "elena.rostova@contoso.com",
+      "senderName": "Elena Rostova",
+      "senderDomain": "contoso.com",
+      "recipients": [
+        "alex.carter@apextech.io"
+      ],
+      "cc": [
+        "cfo@contoso.com"
+      ],
+      "subject": "Quarterly Infrastructure Budget Review & Cloud Spend Approval",
+      "bodySnippet": "Alex, attached is the Q3 cloud infrastructure breakdown. Please review the compute cluster allocation and provide sign-off by tomorrow noon.",
+      "bodyText": "Hi Alex, Attached is the updated Q3 cloud infrastructure breakdown. We need to finalize the compute cluster allocation and provide formal sign-off by tomorrow at 12:00 PM . Best regards, Elena",
+      "bodyHtml": "<div><p>Hi Alex,</p><p>Attached is the updated Q3 cloud infrastructure breakdown. We need to finalize the compute cluster allocation and provide formal sign-off by <strong>tomorrow at 12:00 PM</strong>.</p><p>Best regards,<br>Elena</p></div>",
+      "receivedAt": "2026-09-15T03:10:48.388Z",
+      "labels": [
+        "Finance"
+      ],
+      "isRead": true,
+      "isArchived": false,
+      "isQuarantined": false,
+      "hasAttachment": true,
+      "attachments": [
+        {
+          "id": "att-q3-budget-acc-3",
+          "filename": "Q3_Infrastructure_Spend.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "size": 245760,
+          "securityStatus": "SAFE"
+        }
+      ],
+      "aiAnalysis": {
+        "category": "business",
+        "priority": "High",
+        "priorityScore": 75,
+        "summary": "Alex, attached is the Q3 cloud infrastructure breakdown. Please review the compute cluster allocation and provide sign-off by tomorrow noon.",
+        "sentiment": "urgent",
+        "actionRequired": true,
+        "recommendedAction": "Review obligations due by tomorrow",
+        "deadline": "tomorrow",
+        "extractedEntities": [],
+        "whyPriorityReasons": [
+          "High urgency indicator",
+          "Direct recipient action required",
+          "Active deadline detected"
+        ],
+        "confidence": 0.88,
+        "urgency": "High",
+        "tasks": [],
+        "version": "2.1.0",
+        "processedAt": "2026-09-15T10:10:57.824Z",
+        "notificationDecision": {
+          "shouldNotify": true,
+          "channel": "standard",
+          "reason": "High priority task requiring recipient action"
+        }
+      },
+      "securityAnalysis": {
+        "classification": "SAFE",
+        "riskScore": 0,
+        "phishingScore": 0,
+        "spamScore": 0,
+        "spoofingScore": 0,
+        "riskLevel": "Safe",
+        "indicators": [
+          {
+            "type": "clean",
+            "severity": "info",
+            "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+            "confidence": 0.99
+          }
+        ],
+        "authResults": {
+          "spf": "PASS",
+          "dkim": "PASS",
+          "dmarc": "PASS",
+          "details": "spf=pass smtp.mailfrom=contoso.com; dkim=pass; dmarc=pass"
+        },
+        "whyFlaggedReasons": [
+          "Clean message authentication, trusted domain."
+        ],
+        "senderDomainAnalysis": {
+          "displayName": "Elena Rostova",
+          "senderEmail": "elena.rostova@contoso.com",
+          "domain": "contoso.com",
+          "isLookalike": false,
+          "replyToMatch": true
+        },
+        "urlAnalysis": {
+          "totalUrls": 0,
+          "suspiciousUrls": []
+        }
+      }
+    },
+    {
+      "id": "outlook-ms-msg-compliance-acc-1789467038064",
+      "providerMessageId": "ms-msg-compliance-acc-1789467038064",
+      "providerThreadId": "ms-thread-sec-acc-1789467038064",
+      "accountId": "acc-1789467038064",
+      "accountEmail": "test.user.9@outlook.com",
+      "userId": "user-default",
+      "provider": "outlook",
+      "threadId": "ms-thread-sec-acc-1789467038064",
+      "sender": "sec-ops@contoso.com",
+      "senderName": "IT Security Operations",
+      "senderDomain": "contoso.com",
+      "recipients": [
+        "test.user.9@outlook.com"
+      ],
+      "subject": "SECURITY ADVISORY: Mandatory MFA Policy Enforcement for Microsoft 365",
+      "bodySnippet": "All staff are reminded that conditional access policies require FIDO2 or Authenticator app for all Outlook and Graph API endpoints starting next Monday.",
+      "bodyText": "All staff are reminded that conditional access policies require FIDO2 or Microsoft Authenticator app for all Outlook and Graph API endpoints starting next Monday.",
+      "receivedAt": "2026-09-14T22:10:38.766Z",
+      "labels": [
+        "IT Compliance"
+      ],
+      "isRead": true,
+      "isArchived": false,
+      "isQuarantined": false,
+      "hasAttachment": false,
+      "attachments": [],
+      "aiAnalysis": {
+        "category": "business",
+        "priority": "Medium",
+        "priorityScore": 38,
+        "summary": "All staff are reminded that conditional access policies require FIDO2 or Authenticator app for all Outlook and Graph API endpoints starting next Monday.",
+        "sentiment": "neutral",
+        "actionRequired": false,
+        "recommendedAction": "No immediate action required",
+        "deadline": null,
+        "extractedEntities": [],
+        "whyPriorityReasons": [
+          "Standard business operational communication"
+        ],
+        "confidence": 0.88,
+        "urgency": "Medium",
+        "tasks": [],
+        "version": "2.1.0",
+        "processedAt": "2026-09-15T10:10:49.171Z",
+        "notificationDecision": {
+          "shouldNotify": false,
+          "channel": "silent",
+          "reason": "Routine communication suppressed by notification filters"
+        }
+      },
+      "securityAnalysis": {
+        "classification": "SAFE",
+        "riskScore": 0,
+        "phishingScore": 0,
+        "spamScore": 0,
+        "spoofingScore": 0,
+        "riskLevel": "Safe",
+        "indicators": [
+          {
+            "type": "clean",
+            "severity": "info",
+            "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+            "confidence": 0.99
+          }
+        ],
+        "authResults": {
+          "spf": "PASS",
+          "dkim": "PASS",
+          "dmarc": "PASS",
+          "details": "spf=pass; dkim=pass; dmarc=pass"
+        },
+        "whyFlaggedReasons": [
+          "Clean message authentication, trusted domain."
+        ],
+        "senderDomainAnalysis": {
+          "displayName": "IT Security Operations",
+          "senderEmail": "sec-ops@contoso.com",
+          "domain": "contoso.com",
+          "isLookalike": false,
+          "replyToMatch": true
+        },
+        "urlAnalysis": {
+          "totalUrls": 0,
+          "suspiciousUrls": []
+        }
+      }
+    },
+    {
+      "id": "outlook-ms-msg-finance-acc-1789467038064",
+      "providerMessageId": "ms-msg-finance-acc-1789467038064",
+      "providerThreadId": "ms-thread-fin-acc-1789467038064",
+      "accountId": "acc-1789467038064",
+      "accountEmail": "test.user.9@outlook.com",
+      "userId": "user-default",
+      "provider": "outlook",
+      "threadId": "ms-thread-fin-acc-1789467038064",
+      "sender": "elena.rostova@contoso.com",
+      "senderName": "Elena Rostova",
+      "senderDomain": "contoso.com",
+      "recipients": [
+        "test.user.9@outlook.com"
+      ],
+      "cc": [
+        "cfo@contoso.com"
+      ],
+      "subject": "Quarterly Infrastructure Budget Review & Cloud Spend Approval",
+      "bodySnippet": "Alex, attached is the Q3 cloud infrastructure breakdown. Please review the compute cluster allocation and provide sign-off by tomorrow noon.",
+      "bodyText": "Hi Alex, Attached is the updated Q3 cloud infrastructure breakdown. We need to finalize the compute cluster allocation and provide formal sign-off by tomorrow at 12:00 PM . Best regards, Elena",
+      "bodyHtml": "<div><p>Hi Alex,</p><p>Attached is the updated Q3 cloud infrastructure breakdown. We need to finalize the compute cluster allocation and provide formal sign-off by <strong>tomorrow at 12:00 PM</strong>.</p><p>Best regards,<br>Elena</p></div>",
+      "receivedAt": "2026-09-15T03:10:38.766Z",
+      "labels": [
+        "Finance"
+      ],
+      "isRead": true,
+      "isArchived": false,
+      "isQuarantined": false,
+      "hasAttachment": true,
+      "attachments": [
+        {
+          "id": "att-q3-budget-acc-1789467038064",
+          "filename": "Q3_Infrastructure_Spend.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "size": 245760,
+          "securityStatus": "SAFE"
+        }
+      ],
+      "aiAnalysis": {
+        "category": "business",
+        "priority": "High",
+        "priorityScore": 75,
+        "summary": "Alex, attached is the Q3 cloud infrastructure breakdown. Please review the compute cluster allocation and provide sign-off by tomorrow noon.",
+        "sentiment": "urgent",
+        "actionRequired": true,
+        "recommendedAction": "Review obligations due by tomorrow",
+        "deadline": "tomorrow",
+        "extractedEntities": [],
+        "whyPriorityReasons": [
+          "High urgency indicator",
+          "Direct recipient action required",
+          "Active deadline detected"
+        ],
+        "confidence": 0.88,
+        "urgency": "High",
+        "tasks": [],
+        "version": "2.1.0",
+        "processedAt": "2026-09-15T10:10:48.957Z",
+        "notificationDecision": {
+          "shouldNotify": true,
+          "channel": "standard",
+          "reason": "High priority task requiring recipient action"
+        }
+      },
+      "securityAnalysis": {
+        "classification": "SAFE",
+        "riskScore": 0,
+        "phishingScore": 0,
+        "spamScore": 0,
+        "spoofingScore": 0,
+        "riskLevel": "Safe",
+        "indicators": [
+          {
+            "type": "clean",
+            "severity": "info",
+            "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+            "confidence": 0.99
+          }
+        ],
+        "authResults": {
+          "spf": "PASS",
+          "dkim": "PASS",
+          "dmarc": "PASS",
+          "details": "spf=pass smtp.mailfrom=contoso.com; dkim=pass; dmarc=pass"
+        },
+        "whyFlaggedReasons": [
+          "Clean message authentication, trusted domain."
+        ],
+        "senderDomainAnalysis": {
+          "displayName": "Elena Rostova",
+          "senderEmail": "elena.rostova@contoso.com",
+          "domain": "contoso.com",
+          "isLookalike": false,
+          "replyToMatch": true
+        },
+        "urlAnalysis": {
+          "totalUrls": 0,
+          "suspiciousUrls": []
+        }
+      }
+    },
+    {
+      "id": "outlook-ms-msg-teams-acc-3",
+      "providerMessageId": "ms-msg-teams-acc-3",
+      "providerThreadId": "ms-thread-corp-acc-3",
+      "accountId": "acc-3",
+      "accountEmail": "alex.carter@apextech.io",
+      "userId": "user-default",
+      "provider": "outlook",
+      "threadId": "ms-thread-corp-acc-3",
+      "sender": "noreply@teams.microsoft.com",
+      "senderName": "Microsoft Teams Notifications",
+      "senderDomain": "teams.microsoft.com",
+      "recipients": [
+        "alex.carter@apextech.io"
+      ],
+      "subject": "Microsoft Teams: You have 3 unread mentions in Enterprise Architecture",
+      "bodySnippet": "Sarah Connor mentioned you in Enterprise Architecture: \"@Alex, the security audit results for Microsoft Graph OAuth integration are ready for your review.\"",
+      "bodyText": "Microsoft Teams Sarah Connor mentioned you in Enterprise Architecture : \"@Alex, the security audit results for Microsoft Graph OAuth integration are ready for your review before Friday 4:00 PM.\" Open in Teams",
+      "bodyHtml": "<div><p><strong>Microsoft Teams</strong></p><p>Sarah Connor mentioned you in <strong>Enterprise Architecture</strong>:</p><blockquote>\"@Alex, the security audit results for Microsoft Graph OAuth integration are ready for your review before Friday 4:00 PM.\"</blockquote><p><a href=\"https://teams.microsoft.com\" target=\"_blank\" rel=\"noopener noreferrer\">Open in Teams</a></p></div>",
+      "receivedAt": "2026-09-15T07:10:48.388Z",
+      "labels": [
+        "Work",
+        "Teams"
+      ],
+      "isRead": false,
+      "isArchived": false,
+      "isQuarantined": false,
+      "hasAttachment": false,
+      "attachments": [],
+      "aiAnalysis": {
+        "category": "business",
+        "priority": "Medium",
+        "priorityScore": 38,
+        "summary": "Sarah Connor mentioned you in Enterprise Architecture: \"@Alex, the security audit results for Microsoft Graph OAuth integration are ready for your review.\"",
+        "sentiment": "neutral",
+        "actionRequired": false,
+        "recommendedAction": "No immediate action required",
+        "deadline": null,
+        "extractedEntities": [],
+        "whyPriorityReasons": [
+          "Standard business operational communication"
+        ],
+        "confidence": 0.88,
+        "urgency": "Medium",
+        "tasks": [],
+        "version": "2.1.0",
+        "processedAt": "2026-09-15T10:10:48.569Z",
+        "notificationDecision": {
+          "shouldNotify": false,
+          "channel": "silent",
+          "reason": "Routine communication suppressed by notification filters"
+        }
+      },
+      "securityAnalysis": {
+        "classification": "SAFE",
+        "riskScore": 0,
+        "phishingScore": 0,
+        "spamScore": 0,
+        "spoofingScore": 0,
+        "riskLevel": "Safe",
+        "indicators": [
+          {
+            "type": "clean",
+            "severity": "info",
+            "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+            "confidence": 0.99
+          }
+        ],
+        "authResults": {
+          "spf": "PASS",
+          "dkim": "PASS",
+          "dmarc": "PASS",
+          "details": "spf=pass (sender ip is 52.100.1.1) smtp.mailfrom=teams.microsoft.com; dkim=pass (signature was verified); dmarc=pass"
+        },
+        "whyFlaggedReasons": [
+          "Clean message authentication, trusted domain."
+        ],
+        "senderDomainAnalysis": {
+          "displayName": "Microsoft Teams Notifications",
+          "senderEmail": "noreply@teams.microsoft.com",
+          "domain": "teams.microsoft.com",
+          "isLookalike": false,
+          "replyToMatch": true
+        },
+        "urlAnalysis": {
+          "totalUrls": 0,
+          "suspiciousUrls": []
+        }
+      }
+    },
+    {
+      "id": "outlook-ms-msg-finance-acc-outlook-1789467025640",
+      "providerMessageId": "ms-msg-finance-acc-outlook-1789467025640",
+      "providerThreadId": "ms-thread-fin-acc-outlook-1789467025640",
+      "accountId": "acc-outlook-1789467025640",
+      "accountEmail": "sarah.jenkins@contoso365.com",
+      "userId": "user-default",
+      "provider": "outlook",
+      "threadId": "ms-thread-fin-acc-outlook-1789467025640",
+      "sender": "elena.rostova@contoso.com",
+      "senderName": "Elena Rostova",
+      "senderDomain": "contoso.com",
+      "recipients": [
+        "sarah.jenkins@contoso365.com"
+      ],
+      "cc": [
+        "cfo@contoso.com"
+      ],
+      "subject": "Quarterly Infrastructure Budget Review & Cloud Spend Approval",
+      "bodySnippet": "Alex, attached is the Q3 cloud infrastructure breakdown. Please review the compute cluster allocation and provide sign-off by tomorrow noon.",
+      "bodyText": "Hi Alex, Attached is the updated Q3 cloud infrastructure breakdown. We need to finalize the compute cluster allocation and provide formal sign-off by tomorrow at 12:00 PM . Best regards, Elena",
+      "bodyHtml": "<div><p>Hi Alex,</p><p>Attached is the updated Q3 cloud infrastructure breakdown. We need to finalize the compute cluster allocation and provide formal sign-off by <strong>tomorrow at 12:00 PM</strong>.</p><p>Best regards,<br>Elena</p></div>",
+      "receivedAt": "2026-09-15T03:10:26.349Z",
+      "labels": [
+        "Finance"
+      ],
+      "isRead": true,
+      "isArchived": false,
+      "isQuarantined": false,
+      "hasAttachment": true,
+      "attachments": [
+        {
+          "id": "att-q3-budget-acc-outlook-1789467025640",
+          "filename": "Q3_Infrastructure_Spend.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "size": 245760,
+          "securityStatus": "SAFE"
+        }
+      ],
+      "aiAnalysis": {
+        "category": "business",
+        "priority": "High",
+        "priorityScore": 75,
+        "summary": "Alex, attached is the Q3 cloud infrastructure breakdown. Please review the compute cluster allocation and provide sign-off by tomorrow noon.",
+        "sentiment": "urgent",
+        "actionRequired": true,
+        "recommendedAction": "Review obligations due by tomorrow",
+        "deadline": "tomorrow",
+        "extractedEntities": [],
+        "whyPriorityReasons": [
+          "High urgency indicator",
+          "Direct recipient action required",
+          "Active deadline detected"
+        ],
+        "confidence": 0.88,
+        "urgency": "High",
+        "tasks": [],
+        "version": "2.1.0",
+        "processedAt": "2026-09-15T10:10:46.429Z",
+        "notificationDecision": {
+          "shouldNotify": true,
+          "channel": "standard",
+          "reason": "High priority task requiring recipient action"
+        }
+      },
+      "securityAnalysis": {
+        "classification": "SAFE",
+        "riskScore": 0,
+        "phishingScore": 0,
+        "spamScore": 0,
+        "spoofingScore": 0,
+        "riskLevel": "Safe",
+        "indicators": [
+          {
+            "type": "clean",
+            "severity": "info",
+            "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+            "confidence": 0.99
+          }
+        ],
+        "authResults": {
+          "spf": "PASS",
+          "dkim": "PASS",
+          "dmarc": "PASS",
+          "details": "spf=pass smtp.mailfrom=contoso.com; dkim=pass; dmarc=pass"
+        },
+        "whyFlaggedReasons": [
+          "Clean message authentication, trusted domain."
+        ],
+        "senderDomainAnalysis": {
+          "displayName": "Elena Rostova",
+          "senderEmail": "elena.rostova@contoso.com",
+          "domain": "contoso.com",
+          "isLookalike": false,
+          "replyToMatch": true
+        },
+        "urlAnalysis": {
+          "totalUrls": 0,
+          "suspiciousUrls": []
+        }
+      }
+    },
+    {
+      "id": "outlook-ms-msg-teams-acc-1789467038064",
+      "providerMessageId": "ms-msg-teams-acc-1789467038064",
+      "providerThreadId": "ms-thread-corp-acc-1789467038064",
+      "accountId": "acc-1789467038064",
+      "accountEmail": "test.user.9@outlook.com",
+      "userId": "user-default",
+      "provider": "outlook",
+      "threadId": "ms-thread-corp-acc-1789467038064",
+      "sender": "noreply@teams.microsoft.com",
+      "senderName": "Microsoft Teams Notifications",
+      "senderDomain": "teams.microsoft.com",
+      "recipients": [
+        "test.user.9@outlook.com"
+      ],
+      "subject": "Microsoft Teams: You have 3 unread mentions in Enterprise Architecture",
+      "bodySnippet": "Sarah Connor mentioned you in Enterprise Architecture: \"@Alex, the security audit results for Microsoft Graph OAuth integration are ready for your review.\"",
+      "bodyText": "Microsoft Teams Sarah Connor mentioned you in Enterprise Architecture : \"@Alex, the security audit results for Microsoft Graph OAuth integration are ready for your review before Friday 4:00 PM.\" Open in Teams",
+      "bodyHtml": "<div><p><strong>Microsoft Teams</strong></p><p>Sarah Connor mentioned you in <strong>Enterprise Architecture</strong>:</p><blockquote>\"@Alex, the security audit results for Microsoft Graph OAuth integration are ready for your review before Friday 4:00 PM.\"</blockquote><p><a href=\"https://teams.microsoft.com\" target=\"_blank\" rel=\"noopener noreferrer\">Open in Teams</a></p></div>",
+      "receivedAt": "2026-09-15T07:10:38.766Z",
+      "labels": [
+        "Work",
+        "Teams"
+      ],
+      "isRead": false,
+      "isArchived": false,
+      "isQuarantined": false,
+      "hasAttachment": false,
+      "attachments": [],
+      "aiAnalysis": {
+        "category": "business",
+        "priority": "Medium",
+        "priorityScore": 38,
+        "summary": "Sarah Connor mentioned you in Enterprise Architecture: \"@Alex, the security audit results for Microsoft Graph OAuth integration are ready for your review.\"",
+        "sentiment": "neutral",
+        "actionRequired": false,
+        "recommendedAction": "No immediate action required",
+        "deadline": null,
+        "extractedEntities": [],
+        "whyPriorityReasons": [
+          "Standard business operational communication"
+        ],
+        "confidence": 0.88,
+        "urgency": "Medium",
+        "tasks": [],
+        "version": "2.1.0",
+        "processedAt": "2026-09-15T10:10:44.057Z",
+        "notificationDecision": {
+          "shouldNotify": false,
+          "channel": "silent",
+          "reason": "Routine communication suppressed by notification filters"
+        }
+      },
+      "securityAnalysis": {
+        "classification": "SAFE",
+        "riskScore": 0,
+        "phishingScore": 0,
+        "spamScore": 0,
+        "spoofingScore": 0,
+        "riskLevel": "Safe",
+        "indicators": [
+          {
+            "type": "clean",
+            "severity": "info",
+            "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+            "confidence": 0.99
+          }
+        ],
+        "authResults": {
+          "spf": "PASS",
+          "dkim": "PASS",
+          "dmarc": "PASS",
+          "details": "spf=pass (sender ip is 52.100.1.1) smtp.mailfrom=teams.microsoft.com; dkim=pass (signature was verified); dmarc=pass"
+        },
+        "whyFlaggedReasons": [
+          "Clean message authentication, trusted domain."
+        ],
+        "senderDomainAnalysis": {
+          "displayName": "Microsoft Teams Notifications",
+          "senderEmail": "noreply@teams.microsoft.com",
+          "domain": "teams.microsoft.com",
+          "isLookalike": false,
+          "replyToMatch": true
+        },
+        "urlAnalysis": {
+          "totalUrls": 0,
+          "suspiciousUrls": []
+        }
+      }
+    },
+    {
+      "id": "outlook-ms-msg-teams-acc-outlook-1789467025640",
+      "providerMessageId": "ms-msg-teams-acc-outlook-1789467025640",
+      "providerThreadId": "ms-thread-corp-acc-outlook-1789467025640",
+      "accountId": "acc-outlook-1789467025640",
+      "accountEmail": "sarah.jenkins@contoso365.com",
+      "userId": "user-default",
+      "provider": "outlook",
+      "threadId": "ms-thread-corp-acc-outlook-1789467025640",
+      "sender": "noreply@teams.microsoft.com",
+      "senderName": "Microsoft Teams Notifications",
+      "senderDomain": "teams.microsoft.com",
+      "recipients": [
+        "sarah.jenkins@contoso365.com"
+      ],
+      "subject": "Microsoft Teams: You have 3 unread mentions in Enterprise Architecture",
+      "bodySnippet": "Sarah Connor mentioned you in Enterprise Architecture: \"@Alex, the security audit results for Microsoft Graph OAuth integration are ready for your review.\"",
+      "bodyText": "Microsoft Teams Sarah Connor mentioned you in Enterprise Architecture : \"@Alex, the security audit results for Microsoft Graph OAuth integration are ready for your review before Friday 4:00 PM.\" Open in Teams",
+      "bodyHtml": "<div><p><strong>Microsoft Teams</strong></p><p>Sarah Connor mentioned you in <strong>Enterprise Architecture</strong>:</p><blockquote>\"@Alex, the security audit results for Microsoft Graph OAuth integration are ready for your review before Friday 4:00 PM.\"</blockquote><p><a href=\"https://teams.microsoft.com\" target=\"_blank\" rel=\"noopener noreferrer\">Open in Teams</a></p></div>",
+      "receivedAt": "2026-09-15T07:10:26.349Z",
+      "labels": [
+        "Work",
+        "Teams"
+      ],
+      "isRead": false,
+      "isArchived": false,
+      "isQuarantined": false,
+      "hasAttachment": false,
+      "attachments": [],
+      "aiAnalysis": {
+        "category": "notification",
+        "priority": "Medium",
+        "priorityScore": 47,
+        "summary": "Sarah Connor mentioned Alex in the Enterprise Architecture channel on Microsoft Teams, requesting a review of the security audit results for Microsoft Graph OAuth integration before Friday at 4:00 PM.",
+        "sentiment": "neutral",
+        "actionRequired": true,
+        "recommendedAction": "Review the security audit results for Microsoft Graph OAuth integration in Microsoft Teams before Friday at 4:00 PM.",
+        "deadline": null,
+        "extractedEntities": [
+          {
+            "type": "organization",
+            "value": "Microsoft Teams"
+          },
+          {
+            "type": "person",
+            "value": "Sarah Connor"
+          },
+          {
+            "type": "person",
+            "value": "Alex"
+          },
+          {
+            "type": "date",
+            "value": "Friday 4:00 PM"
+          }
+        ],
+        "whyPriorityReasons": [
+          "Direct recipient action required"
+        ],
+        "confidence": 0.94,
+        "urgency": "Medium",
+        "tasks": [
+          {
+            "id": "task-1789467041541-0",
+            "title": "Review the security audit results for Microsoft Graph OAuth integration",
+            "dueDate": null,
+            "completed": false
+          }
+        ],
+        "version": "2.1.0",
+        "processedAt": "2026-09-15T10:10:41.542Z",
+        "notificationDecision": {
+          "shouldNotify": false,
+          "channel": "silent",
+          "reason": "Routine communication suppressed by notification filters"
+        }
+      },
+      "securityAnalysis": {
+        "classification": "SAFE",
+        "riskScore": 0,
+        "phishingScore": 0,
+        "spamScore": 0,
+        "spoofingScore": 0,
+        "riskLevel": "Safe",
+        "indicators": [
+          {
+            "type": "clean",
+            "severity": "info",
+            "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+            "confidence": 0.99
+          }
+        ],
+        "authResults": {
+          "spf": "PASS",
+          "dkim": "PASS",
+          "dmarc": "PASS",
+          "details": "spf=pass (sender ip is 52.100.1.1) smtp.mailfrom=teams.microsoft.com; dkim=pass (signature was verified); dmarc=pass"
+        },
+        "whyFlaggedReasons": [
+          "Clean message authentication, trusted domain."
+        ],
+        "senderDomainAnalysis": {
+          "displayName": "Microsoft Teams Notifications",
+          "senderEmail": "noreply@teams.microsoft.com",
+          "domain": "teams.microsoft.com",
+          "isLookalike": false,
+          "replyToMatch": true
+        },
+        "urlAnalysis": {
+          "totalUrls": 0,
+          "suspiciousUrls": []
+        }
+      }
+    },
+    {
+      "id": "gmail-18f1a2b3c4d5e6f7",
+      "providerMessageId": "18f1a2b3c4d5e6f7",
+      "providerThreadId": "18f1a2b3c4d5e6f7",
+      "accountId": "acc-test-gmail-1",
+      "userId": "test-user-sentinel-1",
+      "sender": "spoof-bank@security-test.org",
+      "senderName": "Urgent Wire Transfer",
+      "recipients": [
+        "alex.chen@cybersec-defense.io"
+      ],
+      "cc": [
+        "cfo@cybersec-defense.io"
+      ],
+      "replyTo": "hacker-inbox@phish-drop.net",
+      "subject": "Action Required: Immediate Wire Confirmation",
+      "bodyText": "Please verify the attached authorization swift code immediately.",
+      "bodyHtml": "<p>Please verify the attached authorization swift code immediately.</p>",
+      "receivedAt": "2026-09-15T08:29:53.849Z",
+      "labels": [
+        "INBOX",
+        "IMPORTANT",
+        "UNREAD"
+      ],
+      "isRead": true,
+      "hasAttachments": true,
+      "attachments": [
+        {
+          "id": "att-1",
+          "filename": "SWIFT_Transfer_Receipt.pdf",
+          "mimeType": "application/pdf",
+          "size": 142850,
+          "securityStatus": "clean"
+        }
+      ],
+      "threatLevel": "high",
+      "securityScore": 35,
+      "categories": [
+        "financial"
+      ],
+      "aiAnalysis": {
+        "summary": "High-risk fraudulent wire transfer request masquerading as institutional notice.",
+        "phishingProbability": 88,
+        "impersonationRisk": true,
+        "anomalyDetected": true,
+        "recommendedAction": "quarantine",
+        "detectedKeywords": [
+          "immediate wire",
+          "swift code",
+          "action required"
+        ]
+      }
+    },
     {
       "id": "email-1",
       "accountId": "acc-3",
@@ -1443,6 +2592,146 @@
   ],
   "auditLogs": [
     {
+      "id": "log-ai-1789643194525",
+      "timestamp": "2026-09-17T11:06:34.525Z",
+      "actionType": "AI_QUERY",
+      "description": "Executed query on Ask MailSentinel: \"Why was email-1 flagged?...\"",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-ai-1789643194221",
+      "timestamp": "2026-09-17T11:06:34.221Z",
+      "actionType": "AI_QUERY",
+      "description": "Executed query on Ask MailSentinel: \"Which emails require a reply?...\"",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-ai-1789643193896",
+      "timestamp": "2026-09-17T11:06:33.896Z",
+      "actionType": "AI_QUERY",
+      "description": "Executed query on Ask MailSentinel: \"Show me financial emails from this month...\"",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-ai-1789643193526",
+      "timestamp": "2026-09-17T11:06:33.526Z",
+      "actionType": "AI_QUERY",
+      "description": "Executed query on Ask MailSentinel: \"What did my supervisor say about my proj...\"",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-ai-1789643193211",
+      "timestamp": "2026-09-17T11:06:33.211Z",
+      "actionType": "AI_QUERY",
+      "description": "Executed query on Ask MailSentinel: \"What deadlines do I have this week?...\"",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-ai-1789643189983",
+      "timestamp": "2026-09-17T11:06:29.983Z",
+      "actionType": "AI_QUERY",
+      "description": "Executed query on Ask MailSentinel: \"What emails need my attention?...\"",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-ai-1789643167806",
+      "timestamp": "2026-09-17T11:06:07.806Z",
+      "actionType": "AI_QUERY",
+      "description": "Executed query on Ask MailSentinel: \"What did my supervisor say about my proj...\"",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-ai-1789643141859",
+      "timestamp": "2026-09-17T11:05:41.859Z",
+      "actionType": "AI_QUERY",
+      "description": "Executed query on Ask MailSentinel: \"What deadlines do I have this week?...\"",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-ai-1789643110005",
+      "timestamp": "2026-09-17T11:05:10.005Z",
+      "actionType": "AI_QUERY",
+      "description": "Executed query on Ask MailSentinel: \"What deadlines do I have this week?...\"",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-1789467078970",
+      "timestamp": "2026-09-15T10:11:18.970Z",
+      "actionType": "OAUTH_DISCONNECT",
+      "description": "Deleted account: acc-1789467038054",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-1789467078966",
+      "timestamp": "2026-09-15T10:11:18.966Z",
+      "actionType": "OAUTH_DISCONNECT",
+      "description": "Deleted account: acc-1789467038047",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-1789467078960",
+      "timestamp": "2026-09-15T10:11:18.960Z",
+      "actionType": "OAUTH_DISCONNECT",
+      "description": "Deleted account: acc-1789467038040",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-1789467078955",
+      "timestamp": "2026-09-15T10:11:18.955Z",
+      "actionType": "OAUTH_DISCONNECT",
+      "description": "Deleted account: acc-1789467038028",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-1789467040862",
+      "timestamp": "2026-09-15T10:10:40.862Z",
+      "actionType": "OAUTH_DISCONNECT",
+      "description": "Deleted account: acc-1789467038064",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-1789467038064",
+      "timestamp": "2026-09-15T10:10:38.064Z",
+      "actionType": "OAUTH_CONNECT",
+      "description": "Connected OUTLOOK account: test.user.9@outlook.com",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-1789467038054",
+      "timestamp": "2026-09-15T10:10:38.054Z",
+      "actionType": "OAUTH_CONNECT",
+      "description": "Connected GMAIL account: test.user.8@gmail.com",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-1789467038047",
+      "timestamp": "2026-09-15T10:10:38.047Z",
+      "actionType": "OAUTH_CONNECT",
+      "description": "Connected OUTLOOK account: test.user.7@outlook.com",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-1789467038040",
+      "timestamp": "2026-09-15T10:10:38.040Z",
+      "actionType": "OAUTH_CONNECT",
+      "description": "Connected GMAIL account: test.user.6@gmail.com",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-1789467038028",
+      "timestamp": "2026-09-15T10:10:38.028Z",
+      "actionType": "OAUTH_CONNECT",
+      "description": "Connected OUTLOOK account: test.user.5@outlook.com",
+      "userId": "user-default"
+    },
+    {
+      "id": "log-oauth-1789467025642",
+      "timestamp": "2026-09-15T10:10:25.642Z",
+      "actionType": "OAUTH_CONNECT",
+      "description": "Connected Outlook account: sarah.jenkins@contoso365.com with Mail.Read scope",
+      "userId": "user-default"
+    },
+    {
       "id": "log-1",
       "timestamp": "2026-09-11T07:48:10Z",
       "actionType": "ACCOUNT_SYNC",
@@ -1548,7 +2837,664 @@
       "checkLookalikeDomains": true
     }
   },
-  "notificationDeliveries": [],
-  "notificationDevices": [],
-  "oauthStates": []
+  "notifications": [],
+  "notificationDeliveries": [
+    {
+      "id": "deliv-push-1789467061446",
+      "userId": "user-default",
+      "emailId": "outlook-ms-msg-finance-acc-1789467038028",
+      "threadId": "ms-thread-fin-acc-1789467038028",
+      "channel": "push",
+      "status": "delivered",
+      "payload": {
+        "title": "📬 High Priority Email",
+        "body": "Elena Rostova: Quarterly Infrastructure Budget Review & Cloud Spend Approval"
+      },
+      "createdAt": "2026-09-15T10:11:01.446Z"
+    },
+    {
+      "id": "deliv-push-1789467057882",
+      "userId": "user-default",
+      "emailId": "outlook-ms-msg-finance-acc-3",
+      "threadId": "ms-thread-fin-acc-3",
+      "channel": "push",
+      "status": "delivered",
+      "payload": {
+        "title": "📬 High Priority Email",
+        "body": "Elena Rostova: Quarterly Infrastructure Budget Review & Cloud Spend Approval"
+      },
+      "createdAt": "2026-09-15T10:10:57.882Z"
+    },
+    {
+      "id": "deliv-push-1789467050602",
+      "userId": "user-default",
+      "emailId": "outlook-ms-msg-finance-acc-1789467038047",
+      "threadId": "ms-thread-fin-acc-1789467038047",
+      "channel": "push",
+      "status": "delivered",
+      "payload": {
+        "title": "📬 High Priority Email",
+        "body": "Elena Rostova: Quarterly Infrastructure Budget Review & Cloud Spend Approval"
+      },
+      "createdAt": "2026-09-15T10:10:50.602Z"
+    },
+    {
+      "id": "deliv-push-1789467048998",
+      "userId": "user-default",
+      "emailId": "outlook-ms-msg-finance-acc-1789467038064",
+      "threadId": "ms-thread-fin-acc-1789467038064",
+      "channel": "push",
+      "status": "delivered",
+      "payload": {
+        "title": "📬 High Priority Email",
+        "body": "Elena Rostova: Quarterly Infrastructure Budget Review & Cloud Spend Approval"
+      },
+      "createdAt": "2026-09-15T10:10:48.998Z"
+    },
+    {
+      "id": "deliv-push-1789467046481",
+      "userId": "user-default",
+      "emailId": "outlook-ms-msg-finance-acc-outlook-1789467025640",
+      "threadId": "ms-thread-fin-acc-outlook-1789467025640",
+      "channel": "push",
+      "status": "delivered",
+      "payload": {
+        "title": "📬 High Priority Email",
+        "body": "Elena Rostova: Quarterly Infrastructure Budget Review & Cloud Spend Approval"
+      },
+      "createdAt": "2026-09-15T10:10:46.481Z"
+    }
+  ],
+  "notificationDevices": [
+    {
+      "id": "test-web-device-1",
+      "userId": "user-default",
+      "deviceId": "test-web-device-1",
+      "platform": "web",
+      "pushToken": "fcm-test-token-12345",
+      "createdAt": "2026-09-16T08:52:31.129Z",
+      "lastSeenAt": "2026-09-16T08:52:31.129Z",
+      "enabled": true,
+      "userAgent": "Mozilla/5.0 Test Browser"
+    }
+  ],
+  "oauthStates": [
+    {
+      "state": "3d87a5e463a7c0932be46ca38026995597329fb0aba15ab50e94eec93adf30b6",
+      "userId": "user-default",
+      "provider": "outlook",
+      "createdAt": 1789467016257,
+      "expiresAt": 1789467616257,
+      "redirectUri": "https://ais-dev-yuatpimdnpt45thghwvipu-697547337971.europe-west2.run.app/api/accounts/outlook/callback"
+    },
+    {
+      "state": "ea6308270eb2d6fabcbfed6ca29d612e6052d02e591a79a71fc69ff1ac5888cf",
+      "userId": "user-default",
+      "provider": "outlook",
+      "createdAt": 1789467044289,
+      "expiresAt": 1789467644289,
+      "redirectUri": "https://ais-dev-yuatpimdnpt45thghwvipu-697547337971.europe-west2.run.app/api/accounts/outlook/callback"
+    }
+  ],
+  "emailAnalyses": [
+    {
+      "id": "analysis-outlook-ms-msg-compliance-acc-outlook-1789467025640",
+      "emailId": "outlook-ms-msg-compliance-acc-outlook-1789467025640",
+      "userId": "user-default",
+      "version": "2.1.0",
+      "analyzedAt": "2026-09-15T10:11:04.695Z",
+      "summary": "All staff are reminded that conditional access policies require FIDO2 or Authenticator app for all Outlook and Graph API endpoints starting next Monday.",
+      "category": "business",
+      "priority": "Medium",
+      "priorityScore": 38,
+      "urgency": "Medium",
+      "actionRequired": false,
+      "recommendedAction": "No immediate action required",
+      "deadline": null,
+      "tasks": [],
+      "extractedEntities": [],
+      "whyPriorityReasons": [
+        "Standard business operational communication"
+      ],
+      "securityClassification": "SAFE",
+      "securityRiskScore": 0,
+      "securityIndicators": [
+        {
+          "type": "clean",
+          "severity": "info",
+          "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+          "confidence": 0.99
+        }
+      ],
+      "notificationDecision": {
+        "shouldNotify": false,
+        "channel": "silent",
+        "reason": "Routine communication suppressed by notification filters"
+      }
+    },
+    {
+      "id": "analysis-outlook-ms-msg-compliance-acc-1789467038028",
+      "emailId": "outlook-ms-msg-compliance-acc-1789467038028",
+      "userId": "user-default",
+      "version": "2.1.0",
+      "analyzedAt": "2026-09-15T10:11:01.600Z",
+      "summary": "All staff are reminded that conditional access policies require FIDO2 or Authenticator app for all Outlook and Graph API endpoints starting next Monday.",
+      "category": "business",
+      "priority": "Medium",
+      "priorityScore": 38,
+      "urgency": "Medium",
+      "actionRequired": false,
+      "recommendedAction": "No immediate action required",
+      "deadline": null,
+      "tasks": [],
+      "extractedEntities": [],
+      "whyPriorityReasons": [
+        "Standard business operational communication"
+      ],
+      "securityClassification": "SAFE",
+      "securityRiskScore": 0,
+      "securityIndicators": [
+        {
+          "type": "clean",
+          "severity": "info",
+          "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+          "confidence": 0.99
+        }
+      ],
+      "notificationDecision": {
+        "shouldNotify": false,
+        "channel": "silent",
+        "reason": "Routine communication suppressed by notification filters"
+      }
+    },
+    {
+      "id": "analysis-outlook-ms-msg-finance-acc-1789467038028",
+      "emailId": "outlook-ms-msg-finance-acc-1789467038028",
+      "userId": "user-default",
+      "version": "2.1.0",
+      "analyzedAt": "2026-09-15T10:11:01.362Z",
+      "summary": "Alex, attached is the Q3 cloud infrastructure breakdown. Please review the compute cluster allocation and provide sign-off by tomorrow noon.",
+      "category": "business",
+      "priority": "High",
+      "priorityScore": 75,
+      "urgency": "High",
+      "actionRequired": true,
+      "recommendedAction": "Review obligations due by tomorrow",
+      "deadline": "tomorrow",
+      "tasks": [],
+      "extractedEntities": [],
+      "whyPriorityReasons": [
+        "High urgency indicator",
+        "Direct recipient action required",
+        "Active deadline detected"
+      ],
+      "securityClassification": "SAFE",
+      "securityRiskScore": 0,
+      "securityIndicators": [
+        {
+          "type": "clean",
+          "severity": "info",
+          "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+          "confidence": 0.99
+        }
+      ],
+      "notificationDecision": {
+        "shouldNotify": true,
+        "channel": "standard",
+        "reason": "High priority task requiring recipient action"
+      }
+    },
+    {
+      "id": "analysis-outlook-ms-msg-teams-acc-1789467038028",
+      "emailId": "outlook-ms-msg-teams-acc-1789467038028",
+      "userId": "user-default",
+      "version": "2.1.0",
+      "analyzedAt": "2026-09-15T10:11:01.130Z",
+      "summary": "Sarah Connor mentioned you in Enterprise Architecture: \"@Alex, the security audit results for Microsoft Graph OAuth integration are ready for your review.\"",
+      "category": "business",
+      "priority": "Medium",
+      "priorityScore": 38,
+      "urgency": "Medium",
+      "actionRequired": false,
+      "recommendedAction": "No immediate action required",
+      "deadline": null,
+      "tasks": [],
+      "extractedEntities": [],
+      "whyPriorityReasons": [
+        "Standard business operational communication"
+      ],
+      "securityClassification": "SAFE",
+      "securityRiskScore": 0,
+      "securityIndicators": [
+        {
+          "type": "clean",
+          "severity": "info",
+          "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+          "confidence": 0.99
+        }
+      ],
+      "notificationDecision": {
+        "shouldNotify": false,
+        "channel": "silent",
+        "reason": "Routine communication suppressed by notification filters"
+      }
+    },
+    {
+      "id": "analysis-outlook-ms-msg-compliance-acc-3",
+      "emailId": "outlook-ms-msg-compliance-acc-3",
+      "userId": "user-default",
+      "version": "2.1.0",
+      "analyzedAt": "2026-09-15T10:10:58.064Z",
+      "summary": "All staff are reminded that conditional access policies require FIDO2 or Authenticator app for all Outlook and Graph API endpoints starting next Monday.",
+      "category": "business",
+      "priority": "Medium",
+      "priorityScore": 38,
+      "urgency": "Medium",
+      "actionRequired": false,
+      "recommendedAction": "No immediate action required",
+      "deadline": null,
+      "tasks": [],
+      "extractedEntities": [],
+      "whyPriorityReasons": [
+        "Standard business operational communication"
+      ],
+      "securityClassification": "SAFE",
+      "securityRiskScore": 0,
+      "securityIndicators": [
+        {
+          "type": "clean",
+          "severity": "info",
+          "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+          "confidence": 0.99
+        }
+      ],
+      "notificationDecision": {
+        "shouldNotify": false,
+        "channel": "silent",
+        "reason": "Routine communication suppressed by notification filters"
+      }
+    },
+    {
+      "id": "analysis-outlook-ms-msg-finance-acc-3",
+      "emailId": "outlook-ms-msg-finance-acc-3",
+      "userId": "user-default",
+      "version": "2.1.0",
+      "analyzedAt": "2026-09-15T10:10:57.824Z",
+      "summary": "Alex, attached is the Q3 cloud infrastructure breakdown. Please review the compute cluster allocation and provide sign-off by tomorrow noon.",
+      "category": "business",
+      "priority": "High",
+      "priorityScore": 75,
+      "urgency": "High",
+      "actionRequired": true,
+      "recommendedAction": "Review obligations due by tomorrow",
+      "deadline": "tomorrow",
+      "tasks": [],
+      "extractedEntities": [],
+      "whyPriorityReasons": [
+        "High urgency indicator",
+        "Direct recipient action required",
+        "Active deadline detected"
+      ],
+      "securityClassification": "SAFE",
+      "securityRiskScore": 0,
+      "securityIndicators": [
+        {
+          "type": "clean",
+          "severity": "info",
+          "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+          "confidence": 0.99
+        }
+      ],
+      "notificationDecision": {
+        "shouldNotify": true,
+        "channel": "standard",
+        "reason": "High priority task requiring recipient action"
+      }
+    },
+    {
+      "id": "analysis-outlook-ms-msg-compliance-acc-1789467038047",
+      "emailId": "outlook-ms-msg-compliance-acc-1789467038047",
+      "userId": "user-default",
+      "version": "2.1.0",
+      "analyzedAt": "2026-09-15T10:10:50.752Z",
+      "summary": "All staff are reminded that conditional access policies require FIDO2 or Authenticator app for all Outlook and Graph API endpoints starting next Monday.",
+      "category": "business",
+      "priority": "Medium",
+      "priorityScore": 38,
+      "urgency": "Medium",
+      "actionRequired": false,
+      "recommendedAction": "No immediate action required",
+      "deadline": null,
+      "tasks": [],
+      "extractedEntities": [],
+      "whyPriorityReasons": [
+        "Standard business operational communication"
+      ],
+      "securityClassification": "SAFE",
+      "securityRiskScore": 0,
+      "securityIndicators": [
+        {
+          "type": "clean",
+          "severity": "info",
+          "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+          "confidence": 0.99
+        }
+      ],
+      "notificationDecision": {
+        "shouldNotify": false,
+        "channel": "silent",
+        "reason": "Routine communication suppressed by notification filters"
+      }
+    },
+    {
+      "id": "analysis-outlook-ms-msg-finance-acc-1789467038047",
+      "emailId": "outlook-ms-msg-finance-acc-1789467038047",
+      "userId": "user-default",
+      "version": "2.1.0",
+      "analyzedAt": "2026-09-15T10:10:50.554Z",
+      "summary": "Alex, attached is the Q3 cloud infrastructure breakdown. Please review the compute cluster allocation and provide sign-off by tomorrow noon.",
+      "category": "business",
+      "priority": "High",
+      "priorityScore": 75,
+      "urgency": "High",
+      "actionRequired": true,
+      "recommendedAction": "Review obligations due by tomorrow",
+      "deadline": "tomorrow",
+      "tasks": [],
+      "extractedEntities": [],
+      "whyPriorityReasons": [
+        "High urgency indicator",
+        "Direct recipient action required",
+        "Active deadline detected"
+      ],
+      "securityClassification": "SAFE",
+      "securityRiskScore": 0,
+      "securityIndicators": [
+        {
+          "type": "clean",
+          "severity": "info",
+          "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+          "confidence": 0.99
+        }
+      ],
+      "notificationDecision": {
+        "shouldNotify": true,
+        "channel": "standard",
+        "reason": "High priority task requiring recipient action"
+      }
+    },
+    {
+      "id": "analysis-outlook-ms-msg-teams-acc-1789467038047",
+      "emailId": "outlook-ms-msg-teams-acc-1789467038047",
+      "userId": "user-default",
+      "version": "2.1.0",
+      "analyzedAt": "2026-09-15T10:10:50.383Z",
+      "summary": "Sarah Connor mentioned you in Enterprise Architecture: \"@Alex, the security audit results for Microsoft Graph OAuth integration are ready for your review.\"",
+      "category": "business",
+      "priority": "Medium",
+      "priorityScore": 38,
+      "urgency": "Medium",
+      "actionRequired": false,
+      "recommendedAction": "No immediate action required",
+      "deadline": null,
+      "tasks": [],
+      "extractedEntities": [],
+      "whyPriorityReasons": [
+        "Standard business operational communication"
+      ],
+      "securityClassification": "SAFE",
+      "securityRiskScore": 0,
+      "securityIndicators": [
+        {
+          "type": "clean",
+          "severity": "info",
+          "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+          "confidence": 0.99
+        }
+      ],
+      "notificationDecision": {
+        "shouldNotify": false,
+        "channel": "silent",
+        "reason": "Routine communication suppressed by notification filters"
+      }
+    },
+    {
+      "id": "analysis-outlook-ms-msg-compliance-acc-1789467038064",
+      "emailId": "outlook-ms-msg-compliance-acc-1789467038064",
+      "userId": "user-default",
+      "version": "2.1.0",
+      "analyzedAt": "2026-09-15T10:10:49.171Z",
+      "summary": "All staff are reminded that conditional access policies require FIDO2 or Authenticator app for all Outlook and Graph API endpoints starting next Monday.",
+      "category": "business",
+      "priority": "Medium",
+      "priorityScore": 38,
+      "urgency": "Medium",
+      "actionRequired": false,
+      "recommendedAction": "No immediate action required",
+      "deadline": null,
+      "tasks": [],
+      "extractedEntities": [],
+      "whyPriorityReasons": [
+        "Standard business operational communication"
+      ],
+      "securityClassification": "SAFE",
+      "securityRiskScore": 0,
+      "securityIndicators": [
+        {
+          "type": "clean",
+          "severity": "info",
+          "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+          "confidence": 0.99
+        }
+      ],
+      "notificationDecision": {
+        "shouldNotify": false,
+        "channel": "silent",
+        "reason": "Routine communication suppressed by notification filters"
+      }
+    },
+    {
+      "id": "analysis-outlook-ms-msg-finance-acc-1789467038064",
+      "emailId": "outlook-ms-msg-finance-acc-1789467038064",
+      "userId": "user-default",
+      "version": "2.1.0",
+      "analyzedAt": "2026-09-15T10:10:48.957Z",
+      "summary": "Alex, attached is the Q3 cloud infrastructure breakdown. Please review the compute cluster allocation and provide sign-off by tomorrow noon.",
+      "category": "business",
+      "priority": "High",
+      "priorityScore": 75,
+      "urgency": "High",
+      "actionRequired": true,
+      "recommendedAction": "Review obligations due by tomorrow",
+      "deadline": "tomorrow",
+      "tasks": [],
+      "extractedEntities": [],
+      "whyPriorityReasons": [
+        "High urgency indicator",
+        "Direct recipient action required",
+        "Active deadline detected"
+      ],
+      "securityClassification": "SAFE",
+      "securityRiskScore": 0,
+      "securityIndicators": [
+        {
+          "type": "clean",
+          "severity": "info",
+          "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+          "confidence": 0.99
+        }
+      ],
+      "notificationDecision": {
+        "shouldNotify": true,
+        "channel": "standard",
+        "reason": "High priority task requiring recipient action"
+      }
+    },
+    {
+      "id": "analysis-outlook-ms-msg-teams-acc-3",
+      "emailId": "outlook-ms-msg-teams-acc-3",
+      "userId": "user-default",
+      "version": "2.1.0",
+      "analyzedAt": "2026-09-15T10:10:48.569Z",
+      "summary": "Sarah Connor mentioned you in Enterprise Architecture: \"@Alex, the security audit results for Microsoft Graph OAuth integration are ready for your review.\"",
+      "category": "business",
+      "priority": "Medium",
+      "priorityScore": 38,
+      "urgency": "Medium",
+      "actionRequired": false,
+      "recommendedAction": "No immediate action required",
+      "deadline": null,
+      "tasks": [],
+      "extractedEntities": [],
+      "whyPriorityReasons": [
+        "Standard business operational communication"
+      ],
+      "securityClassification": "SAFE",
+      "securityRiskScore": 0,
+      "securityIndicators": [
+        {
+          "type": "clean",
+          "severity": "info",
+          "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+          "confidence": 0.99
+        }
+      ],
+      "notificationDecision": {
+        "shouldNotify": false,
+        "channel": "silent",
+        "reason": "Routine communication suppressed by notification filters"
+      }
+    },
+    {
+      "id": "analysis-outlook-ms-msg-finance-acc-outlook-1789467025640",
+      "emailId": "outlook-ms-msg-finance-acc-outlook-1789467025640",
+      "userId": "user-default",
+      "version": "2.1.0",
+      "analyzedAt": "2026-09-15T10:10:46.429Z",
+      "summary": "Alex, attached is the Q3 cloud infrastructure breakdown. Please review the compute cluster allocation and provide sign-off by tomorrow noon.",
+      "category": "business",
+      "priority": "High",
+      "priorityScore": 75,
+      "urgency": "High",
+      "actionRequired": true,
+      "recommendedAction": "Review obligations due by tomorrow",
+      "deadline": "tomorrow",
+      "tasks": [],
+      "extractedEntities": [],
+      "whyPriorityReasons": [
+        "High urgency indicator",
+        "Direct recipient action required",
+        "Active deadline detected"
+      ],
+      "securityClassification": "SAFE",
+      "securityRiskScore": 0,
+      "securityIndicators": [
+        {
+          "type": "clean",
+          "severity": "info",
+          "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+          "confidence": 0.99
+        }
+      ],
+      "notificationDecision": {
+        "shouldNotify": true,
+        "channel": "standard",
+        "reason": "High priority task requiring recipient action"
+      }
+    },
+    {
+      "id": "analysis-outlook-ms-msg-teams-acc-1789467038064",
+      "emailId": "outlook-ms-msg-teams-acc-1789467038064",
+      "userId": "user-default",
+      "version": "2.1.0",
+      "analyzedAt": "2026-09-15T10:10:44.057Z",
+      "summary": "Sarah Connor mentioned you in Enterprise Architecture: \"@Alex, the security audit results for Microsoft Graph OAuth integration are ready for your review.\"",
+      "category": "business",
+      "priority": "Medium",
+      "priorityScore": 38,
+      "urgency": "Medium",
+      "actionRequired": false,
+      "recommendedAction": "No immediate action required",
+      "deadline": null,
+      "tasks": [],
+      "extractedEntities": [],
+      "whyPriorityReasons": [
+        "Standard business operational communication"
+      ],
+      "securityClassification": "SAFE",
+      "securityRiskScore": 0,
+      "securityIndicators": [
+        {
+          "type": "clean",
+          "severity": "info",
+          "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+          "confidence": 0.99
+        }
+      ],
+      "notificationDecision": {
+        "shouldNotify": false,
+        "channel": "silent",
+        "reason": "Routine communication suppressed by notification filters"
+      }
+    },
+    {
+      "id": "analysis-outlook-ms-msg-teams-acc-outlook-1789467025640",
+      "emailId": "outlook-ms-msg-teams-acc-outlook-1789467025640",
+      "userId": "user-default",
+      "version": "2.1.0",
+      "analyzedAt": "2026-09-15T10:10:41.542Z",
+      "summary": "Sarah Connor mentioned Alex in the Enterprise Architecture channel on Microsoft Teams, requesting a review of the security audit results for Microsoft Graph OAuth integration before Friday at 4:00 PM.",
+      "category": "notification",
+      "priority": "Medium",
+      "priorityScore": 47,
+      "urgency": "Medium",
+      "actionRequired": true,
+      "recommendedAction": "Review the security audit results for Microsoft Graph OAuth integration in Microsoft Teams before Friday at 4:00 PM.",
+      "deadline": null,
+      "tasks": [
+        {
+          "id": "task-1789467041541-0",
+          "title": "Review the security audit results for Microsoft Graph OAuth integration",
+          "dueDate": null,
+          "completed": false
+        }
+      ],
+      "extractedEntities": [
+        {
+          "type": "organization",
+          "value": "Microsoft Teams"
+        },
+        {
+          "type": "person",
+          "value": "Sarah Connor"
+        },
+        {
+          "type": "person",
+          "value": "Alex"
+        },
+        {
+          "type": "date",
+          "value": "Friday 4:00 PM"
+        }
+      ],
+      "whyPriorityReasons": [
+        "Direct recipient action required"
+      ],
+      "securityClassification": "SAFE",
+      "securityRiskScore": 0,
+      "securityIndicators": [
+        {
+          "type": "clean",
+          "severity": "info",
+          "description": "All SPF, DKIM, and DMARC validations passed. No malicious URLs or anomalous headers detected.",
+          "confidence": 0.99
+        }
+      ],
+      "notificationDecision": {
+        "shouldNotify": false,
+        "channel": "silent",
+        "reason": "Routine communication suppressed by notification filters"
+      }
+    }
+  ]
 }

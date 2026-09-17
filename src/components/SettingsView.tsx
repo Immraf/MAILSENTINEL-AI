@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { apiFetch } from '../lib/api';
 import {
   Bell,
   MessageSquare,
@@ -42,7 +43,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   React.useEffect(() => {
-    fetch('/api/accounts/config-status')
+    apiFetch('/api/accounts/config-status')
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data?.whatsapp) {
@@ -184,15 +185,32 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </p>
         </div>
 
-        {/* WhatsApp Business Cloud API */}
+        {/* WhatsApp Business Cloud API (Official Cloud API Only) */}
         <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/60 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <MessageSquare className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs font-bold text-white">WhatsApp Business Cloud API</span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-white">WhatsApp Business Platform Cloud API</span>
+                  <span className="px-1.5 py-0.5 text-[9px] font-mono rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    OFFICIAL META API ONLY
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Direct encrypted WhatsApp messages for urgent priority and security alerts. Unofficial automation is strictly prohibited.
+                </p>
+              </div>
             </div>
             <button
-              onClick={() => updateNotif({ whatsappEnabled: !safeNotif.whatsappEnabled })}
+              onClick={() => {
+                const nextEnabled = !safeNotif.whatsappEnabled;
+                updateNotif({
+                  whatsappEnabled: nextEnabled,
+                  whatsappOptIn: nextEnabled ? (safeNotif.whatsappOptIn ?? true) : false,
+                  whatsappOptInTimestamp: nextEnabled ? new Date().toISOString() : undefined,
+                });
+              }}
               className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
                 safeNotif.whatsappEnabled
                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
@@ -203,10 +221,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </button>
           </div>
 
-          <p className="text-xs text-slate-400">
-            Dispatches urgent security and priority alerts directly to your verified phone number using official Meta WhatsApp Cloud templates.
-          </p>
-
           {waConfigured === false && (
             <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-800/40 text-xs text-amber-200 space-y-1">
               <div className="flex items-center gap-1.5 font-semibold text-amber-300">
@@ -214,21 +228,55 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span>WhatsApp notifications are not configured.</span>
               </div>
               <p className="text-slate-300 text-[11px] leading-relaxed">
-                To activate real outbound WhatsApp dispatching, define the following variables in environment secrets:
+                To activate official Meta WhatsApp Cloud dispatching, configure server environment secrets:
               </p>
               <ul className="list-disc list-inside font-mono text-[10px] text-cyan-300 space-y-0.5">
                 <li>WHATSAPP_PHONE_NUMBER_ID</li>
                 <li>WHATSAPP_ACCESS_TOKEN</li>
                 <li>WHATSAPP_BUSINESS_ACCOUNT_ID</li>
+                <li>WHATSAPP_APP_SECRET</li>
+                <li>WHATSAPP_VERIFY_TOKEN</li>
               </ul>
             </div>
           )}
 
+          {/* Explicit User Opt-In (MANDATORY REQUIREMENT) */}
+          <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-700/80 space-y-2">
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={safeNotif.whatsappOptIn ?? false}
+                onChange={(e) =>
+                  updateNotif({
+                    whatsappOptIn: e.target.checked,
+                    whatsappEnabled: e.target.checked ? true : safeNotif.whatsappEnabled,
+                    whatsappOptInTimestamp: e.target.checked ? new Date().toISOString() : undefined,
+                    whatsappOptInSource: 'settings_view_consent',
+                  })
+                }
+                className="mt-0.5 w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 bg-slate-800 border-slate-600 cursor-pointer"
+              />
+              <div className="text-xs space-y-1">
+                <span className="font-semibold text-slate-200">
+                  Explicit User Opt-In (Required for Outbound Dispatch)
+                </span>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  I explicitly authorize MailSentinel to transmit critical email alerts to my registered WhatsApp number. For alerts outside the 24-hour customer service window, official Meta-approved utility templates will be utilized. Reply STOP at any time to revoke consent.
+                </p>
+                {safeNotif.whatsappOptIn && safeNotif.whatsappOptInTimestamp && (
+                  <p className="text-[10px] text-emerald-400 font-mono">
+                    Consent recorded: {new Date(safeNotif.whatsappOptInTimestamp).toLocaleString()}
+                  </p>
+                )}
+              </div>
+            </label>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs pt-1">
             <div>
-              <label className="block text-slate-400 mb-1">Destination Phone Number</label>
+              <label className="block text-slate-400 mb-1">Destination Phone Number (E.164 Format)</label>
               <input
-                type="text"
+                type="tel"
                 value={safeNotif.whatsappPhone || safeNotif.whatsappNumber || ''}
                 onChange={(e) =>
                   updateNotif({
@@ -236,19 +284,35 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     whatsappNumber: e.target.value,
                   })
                 }
-                placeholder="+1 (555) 019-2834"
-                className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200"
+                placeholder="+14155552671"
+                className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 font-mono placeholder-slate-500"
               />
             </div>
+
             <div>
-              <label className="block text-slate-400 mb-1">Template Identifier</label>
-              <input
-                type="text"
-                readOnly
-                value="mailsentinel_critical_alert_v1"
-                className="w-full px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700 text-slate-400 font-mono"
-              />
+              <label className="block text-slate-400 mb-1">
+                WhatsApp Dispatch Threshold <span className="text-emerald-400">(Default: Critical only)</span>
+              </label>
+              <select
+                value={safeNotif.whatsappThreshold || 'Critical'}
+                onChange={(e) => updateNotif({ whatsappThreshold: e.target.value as any })}
+                className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200"
+              >
+                <option value="Critical">Critical (Default - Recommended: Phishing, security breaches, leaks)</option>
+                <option value="High">High (Deadlines, executive escalation, wire requests)</option>
+                <option value="Medium">Medium (Actionable projects, key team updates)</option>
+                <option value="Low">Low (All emails qualifying for notifications)</option>
+              </select>
             </div>
+          </div>
+
+          {/* Proactive Template Spec */}
+          <div className="p-2.5 rounded-lg bg-slate-900/50 border border-slate-700/50 text-[11px] text-slate-400 flex items-center justify-between">
+            <div>
+              <span className="text-slate-300 font-mono">Meta Approved Utility Template: </span>
+              <span className="font-mono text-cyan-300">&quot;🚨 New {`{{priority}}`} email from {`{{sender}}`}: {`{{summary}}`}&quot;</span>
+            </div>
+            <span className="text-[10px] text-slate-500 font-mono">Template: mailsentinel_critical_alert_v1</span>
           </div>
         </div>
 
