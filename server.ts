@@ -113,18 +113,11 @@ async function startServer() {
   // 1. HEALTH & SYSTEM METRICS
   // ==========================================================================
   app.get('/api/health', (req, res) => {
-    const defaultAccounts = db.getAccounts('user-default');
-    const defaultEmails = db.getEmails('user-default');
-    const defaultQuarantine = db.getQuarantine('user-default');
-
     res.json({
       status: 'ok',
-      connectedAccounts: defaultAccounts.length,
-      totalEmails: defaultEmails.length,
-      quarantinedCount: defaultQuarantine.length,
       hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
       timestamp: new Date().toISOString(),
-      mode: process.env.GOOGLE_CLIENT_ID ? 'production' : 'demo_and_production_ready',
+      service: 'MailSentinel AI',
     });
   });
 
@@ -1853,11 +1846,11 @@ Extract summary, category, actionRequired, recommendedAction, deadline, entities
   // ==========================================================================
   // API 404 HANDLER (Guarantees JSON, prevents HTML fallback for /api/*)
   // ==========================================================================
-  app.all('/api/*', (req, res) => {
+  app.all(['/api', '/api/*'], (req, res) => {
     res.status(404).json({
       error: {
         code: 'NOT_FOUND',
-        message: `API route ${req.method} ${req.path} not found.`,
+        message: 'API endpoint not found',
       },
     });
   });

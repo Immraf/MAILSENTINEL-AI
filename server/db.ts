@@ -73,11 +73,12 @@ export interface EmailAnalysisRecord {
 export interface UserRecord {
   id: string;
   email: string;
-  name: string;
+  name?: string;
+  displayName?: string;
   passwordHash?: string;
   sessionToken?: string;
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string;
   isDemo?: boolean;
 }
 

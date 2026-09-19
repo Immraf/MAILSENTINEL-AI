@@ -172,30 +172,36 @@ export interface Email {
   providerMessageId?: string;
   providerThreadId?: string;
   accountId: string;
-  accountEmail: string;
+  accountEmail?: string;
   userId?: string;
-  provider: EmailProvider;
+  provider?: EmailProvider;
   threadId: string;
   sender: string;
   senderName: string;
   senderDomain: string;
-  recipients: string[];
+  recipients?: string[];
+  recipient?: string;
   cc?: string[];
   replyTo?: string;
   subject: string;
-  bodySnippet: string;
+  bodySnippet?: string;
+  snippet?: string;
   bodyText: string;
   bodyHtml?: string;
   receivedAt: string;
   labels?: string[];
   isRead: boolean;
-  isArchived: boolean;
+  isStarred?: boolean;
+  isArchived?: boolean;
   isQuarantined: boolean;
-  hasAttachment: boolean;
+  hasAttachment?: boolean;
+  hasAttachments?: boolean;
   attachments?: AttachmentInfo[];
-  aiAnalysis: AIAnalysis;
-  securityAnalysis: SecurityAnalysis;
+  aiAnalysis?: AIAnalysis;
+  securityAnalysis?: SecurityAnalysis;
   tags?: string[];
+  category?: string;
+  priority?: string;
 }
 
 export interface QuarantineItem {
@@ -335,11 +341,19 @@ export interface NotificationDeliveryItem {
 }
 
 export interface NotificationSettings {
-  pushEnabled: boolean;
+  pushEnabled?: boolean;
   browserPushEnabled?: boolean;
   mobilePushEnabled?: boolean;
   desktopEnabled?: boolean;
-  whatsappEnabled: boolean;
+  whatsappEnabled?: boolean;
+  channels?: {
+    browser?: boolean;
+    desktop?: boolean;
+    mobilePush?: boolean;
+    whatsapp?: boolean;
+    dailyDigest?: boolean;
+  };
+  priorityThreshold?: PriorityLevel;
   whatsappOptIn?: boolean;
   whatsappOptInTimestamp?: string;
   whatsappOptInSource?: string;

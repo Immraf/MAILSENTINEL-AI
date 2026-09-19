@@ -40,20 +40,6 @@ export async function authMiddleware(req: express.Request, res: express.Response
     });
   }
 
-  // Developer / Demo session bypass for local development and demonstration mode
-  if (token === 'demo-token' || token.startsWith('demo-token-')) {
-    const demoUid = 'user-default';
-    (req as AuthenticatedRequest).user = {
-      uid: demoUid,
-      id: demoUid,
-      email: 'alex.turner@example.com',
-      name: 'Alex Turner',
-      emailVerified: true,
-      isDemo: true,
-    };
-    return next();
-  }
-
   try {
     const adminAuth = getAdminAuth();
     const decodedToken = await adminAuth.verifyIdToken(token);
@@ -62,34 +48,39 @@ export async function authMiddleware(req: express.Request, res: express.Response
     const email = decodedToken.email || '';
     const name = decodedToken.name || (email ? email.split('@')[0] : 'User');
     const emailVerified = Boolean(decodedToken.email_verified);
+    const picture = decodedToken.picture;
 
-    // Sync or ensure user record in application database
-    let userRecord = db.getUserById(uid);
-    if (!userRecord) {
-      userRecord = db.createUser({
-        id: uid,
-        email: email.toLowerCase(),
-        name,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        isDemo: false,
-      });
+    // Isolate auxiliary database synchronization so auth NEVER depends on database.json
+    try {
+      let userRecord = db.getUserById(uid);
+      if (!userRecord) {
+        db.createUser({
+          id: uid,
+          email: email.toLowerCase(),
+          name,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          isDemo: false,
+        });
+      }
+    } catch (dbErr) {
+      // Non-blocking: Authentication does NOT depend on local database storage
     }
 
-    // Attach verified user to request object (req.user.uid = Firebase authenticated user UID)
+    // Attach verified user to request object (req.user.uid = verified Firebase UID)
     (req as AuthenticatedRequest).user = {
       uid,
       id: uid,
       email,
-      name: userRecord.name || name,
+      name,
       emailVerified,
-      picture: decodedToken.picture,
+      picture,
       isDemo: false,
     };
 
     next();
   } catch (err: any) {
-    // CRITICAL: Do NOT expose tokens or sensitive error traces to logs
+    // CRITICAL: Return structured JSON 401 without exposing tokens or internal traces
     return res.status(401).json({
       error: {
         code: 'UNAUTHENTICATED',

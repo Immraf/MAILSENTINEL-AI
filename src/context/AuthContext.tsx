@@ -18,6 +18,8 @@ interface AuthContextType {
   firebaseUser: User | null;
   loading: boolean;
   isDemoMode: boolean;
+  authError: string | null;
+  clearAuthError: () => void;
   enterDemoMode: () => void;
   exitDemoMode: () => void;
   register: (email: string, password: string, displayName?: string) => Promise<void>;
@@ -35,6 +37,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // Sync profile to backend after login/registration
   const syncProfileWithBackend = async (fbUser: User) => {
@@ -58,29 +61,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     // Listen to Firebase Authentication state changes
     const unsubscribe = onAuthStateChange(async (fbUser) => {
-      setFirebaseUser(fbUser);
-      if (fbUser) {
-        setUser({
-          uid: fbUser.uid,
-          email: fbUser.email,
-          displayName: fbUser.displayName || (fbUser.email ? fbUser.email.split('@')[0] : 'User'),
-          photoURL: fbUser.photoURL,
-          emailVerified: fbUser.emailVerified,
-          isDemo: false,
-        });
-        setIsDemoMode(false);
-        // Sync profile to backend
-        syncProfileWithBackend(fbUser);
-      } else {
-        setUser(null);
+      try {
+        setFirebaseUser(fbUser);
+        if (fbUser) {
+          setUser({
+            uid: fbUser.uid,
+            email: fbUser.email,
+            displayName: fbUser.displayName || (fbUser.email ? fbUser.email.split('@')[0] : 'User'),
+            photoURL: fbUser.photoURL,
+            emailVerified: fbUser.emailVerified,
+            isDemo: false,
+          });
+          setIsDemoMode(false);
+          // Sync profile to backend non-blockingly
+          syncProfileWithBackend(fbUser);
+        } else {
+          setUser(null);
+        }
+      } catch (err: any) {
+        console.error('Error in onAuthStateChanged:', err);
+        setAuthError(err.message || 'Authentication error');
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();
   }, []);
 
   const register = async (email: string, password: string, displayName?: string) => {
+    setAuthError(null);
     const createdUser = await registerWithEmail(email, password, displayName);
     if (createdUser) {
       await syncProfileWithBackend(createdUser);
@@ -88,6 +98,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const login = async (email: string, password: string) => {
+    setAuthError(null);
     const loggedUser = await loginWithEmail(email, password);
     if (loggedUser) {
       await syncProfileWithBackend(loggedUser);
@@ -95,6 +106,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loginWithGoogle = async () => {
+    setAuthError(null);
     const result = await googleSignIn();
     if (result?.user) {
       await syncProfileWithBackend(result.user);
@@ -102,6 +114,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const resetUserPassword = async (email: string) => {
+    setAuthError(null);
     await firebaseResetPassword(email);
   };
 
@@ -122,6 +135,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     setFirebaseUser(null);
     setIsDemoMode(false);
+    setAuthError(null);
   };
 
   const enterDemoMode = () => {
@@ -136,6 +150,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return getFirebaseIdToken(forceRefresh);
   };
 
+  const clearAuthError = () => {
+    setAuthError(null);
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -143,6 +161,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         firebaseUser,
         loading,
         isDemoMode,
+        authError,
+        clearAuthError,
         enterDemoMode,
         exitDemoMode,
         register,

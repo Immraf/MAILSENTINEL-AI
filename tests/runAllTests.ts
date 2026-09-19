@@ -90,7 +90,7 @@ async function testAuthAndUserIsolation() {
   await runTest('ISOLATION', 'User Alice accounts are invisible to User Bob', () => {
     const aliceAccount: EmailAccount = {
       id: 'acc-alice-1',
-      provider: 'Google',
+      provider: 'gmail',
       emailAddress: 'alice.work@gmail.com',
       displayName: 'Alice Work Account',
       status: 'Connected',
@@ -168,6 +168,7 @@ async function testOAuthAndEncryption() {
       state,
       userId,
       provider: 'gmail',
+      redirectUri: 'http://localhost:3000/api/oauth/google/callback',
       createdAt: Date.now(),
       expiresAt: Date.now() + 10 * 60 * 1000,
     });
@@ -222,7 +223,7 @@ async function testOAuthAndEncryption() {
     for (let i = 1; i <= 10; i++) {
       db.addAccount(limitUserId, {
         id: `acc-limit-${i}`,
-        provider: 'Google',
+        provider: 'gmail',
         emailAddress: `worker${i}@company.com`,
         displayName: `Worker ${i}`,
         status: 'Connected',
@@ -239,7 +240,7 @@ async function testOAuthAndEncryption() {
     try {
       db.addAccount(limitUserId, {
         id: 'acc-limit-11',
-        provider: 'Google',
+        provider: 'gmail',
         emailAddress: 'worker11@company.com',
         displayName: 'Worker 11',
         status: 'Connected',
@@ -259,7 +260,7 @@ async function testOAuthAndEncryption() {
     const dupUserId = 'user-dup-test-' + Date.now();
     db.addAccount(dupUserId, {
       id: 'acc-dup-1',
-      provider: 'Microsoft',
+      provider: 'outlook',
       emailAddress: 'duplicate.user@outlook.com',
       displayName: 'Primary Outlook',
       status: 'Connected',
@@ -273,7 +274,7 @@ async function testOAuthAndEncryption() {
     try {
       db.addAccount(dupUserId, {
         id: 'acc-dup-2',
-        provider: 'Microsoft',
+        provider: 'outlook',
         emailAddress: 'duplicate.user@outlook.com',
         displayName: 'Second Duplicate',
         status: 'Connected',
@@ -501,16 +502,16 @@ async function testNotifications() {
       hasAttachments: false,
       attachments: [],
       labels: ['Work'],
-      category: 'Primary',
+      category: 'business',
       priority: 'High',
       aiAnalysis: {
         summary: 'Urgent request for project review',
         priority: 'High',
         priorityScore: 85,
-        category: 'Primary',
+        category: 'business',
         actionRequired: true,
         confidence: 90,
-      },
+      } as any,
     };
 
     // First dispatch -> Generates notification

@@ -34,15 +34,14 @@ try {
   // Ignore in environments without window/indexedDB
 }
 
-// Configure Google Auth Provider strictly with minimum required scopes: gmail.readonly only
+// Configure Google Auth Provider strictly for MailSentinel application authentication
 export const googleProvider = new GoogleAuthProvider();
-googleProvider.addScope('https://www.googleapis.com/auth/gmail.readonly');
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-// In-memory token cache for fast client requests
+// In-memory token cache for optional access token
 let cachedAccessToken: string | null = null;
 let isSigningIn = false;
-let activeSignInPromise: Promise<{ user: User; accessToken: string } | null> | null = null;
+let activeSignInPromise: Promise<{ user: User; accessToken?: string } | null> | null = null;
 
 // Test Firestore connection on boot
 export async function testConnection() {
@@ -93,7 +92,7 @@ export async function resetPassword(email: string): Promise<void> {
 /**
  * Sign in using Google with Firebase Authentication Popup
  */
-export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
+export const googleSignIn = async (): Promise<{ user: User; accessToken?: string } | null> => {
   if (activeSignInPromise) {
     return activeSignInPromise;
   }
@@ -103,12 +102,10 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
       isSigningIn = true;
       const result = await signInWithPopup(auth, googleProvider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (!credential?.accessToken) {
-        throw new Error('Failed to obtain Google access token from Firebase Auth');
+      if (credential?.accessToken) {
+        cachedAccessToken = credential.accessToken;
       }
-
-      cachedAccessToken = credential.accessToken;
-      return { user: result.user, accessToken: cachedAccessToken };
+      return { user: result.user, accessToken: credential?.accessToken || '' };
     } catch (error: any) {
       const code = error?.code || '';
       if (
@@ -116,10 +113,6 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
         code === 'auth/popup-closed-by-user'
       ) {
         console.warn('Google sign-in popup was closed or cancelled by user.');
-        return null;
-      }
-      if (code === 'auth/popup-blocked') {
-        console.warn('Google sign-in popup was blocked by browser. Please allow popups.');
         return null;
       }
 

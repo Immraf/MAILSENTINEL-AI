@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { Shield, Mail, Lock, User, ArrowRight, CheckCircle, AlertCircle, KeyRound, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { formatAuthError } from '../utils/authErrors';
 
 type AuthMode = 'login' | 'register' | 'forgot_password';
 
 export const AuthView: React.FC = () => {
-  const { login, register, loginWithGoogle, resetUserPassword, enterDemoMode } = useAuth();
+  const { login, register, loginWithGoogle, resetUserPassword, enterDemoMode, authError, clearAuthError } = useAuth();
 
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
@@ -17,34 +18,12 @@ export const AuthView: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const formatFirebaseError = (error: any): string => {
-    const code = error?.code || '';
-    switch (code) {
-      case 'auth/invalid-credential':
-      case 'auth/wrong-password':
-      case 'auth/user-not-found':
-        return 'Invalid email address or password. Please check your credentials and try again.';
-      case 'auth/email-already-in-use':
-        return 'An account with this email address already exists. Please sign in instead.';
-      case 'auth/weak-password':
-        return 'Password must be at least 6 characters long.';
-      case 'auth/invalid-email':
-        return 'Please enter a valid email address.';
-      case 'auth/popup-closed-by-user':
-      case 'auth/cancelled-popup-request':
-        return 'Sign in was cancelled.';
-      case 'auth/popup-blocked':
-        return 'Sign in popup was blocked by your browser. Please allow popups for this site.';
-      case 'auth/too-many-requests':
-        return 'Too many unsuccessful attempts. Please wait a moment or reset your password.';
-      default:
-        return error?.message || 'Authentication failed. Please try again.';
-    }
-  };
+  const displayError = errorMessage || authError;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    clearAuthError();
     setSuccessMessage(null);
 
     if (!email.trim()) {
@@ -58,7 +37,7 @@ export const AuthView: React.FC = () => {
         await resetUserPassword(email.trim());
         setSuccessMessage('A password reset link has been dispatched to your email address.');
       } catch (err: any) {
-        setErrorMessage(formatFirebaseError(err));
+        setErrorMessage(formatAuthError(err));
       } finally {
         setIsLoading(false);
       }
@@ -84,7 +63,7 @@ export const AuthView: React.FC = () => {
         setIsLoading(true);
         await register(email.trim(), password, displayName.trim());
       } catch (err: any) {
-        setErrorMessage(formatFirebaseError(err));
+        setErrorMessage(formatAuthError(err));
       } finally {
         setIsLoading(false);
       }
@@ -94,7 +73,7 @@ export const AuthView: React.FC = () => {
         setIsLoading(true);
         await login(email.trim(), password);
       } catch (err: any) {
-        setErrorMessage(formatFirebaseError(err));
+        setErrorMessage(formatAuthError(err));
       } finally {
         setIsLoading(false);
       }
@@ -103,12 +82,13 @@ export const AuthView: React.FC = () => {
 
   const handleGoogleSignIn = async () => {
     setErrorMessage(null);
+    clearAuthError();
     setSuccessMessage(null);
     try {
       setIsLoading(true);
       await loginWithGoogle();
     } catch (err: any) {
-      setErrorMessage(formatFirebaseError(err));
+      setErrorMessage(formatAuthError(err));
     } finally {
       setIsLoading(false);
     }
@@ -189,10 +169,10 @@ export const AuthView: React.FC = () => {
           )}
 
           {/* Feedback messages */}
-          {errorMessage && (
+          {displayError && (
             <div className="mb-5 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-              <div className="leading-relaxed">{errorMessage}</div>
+              <div className="leading-relaxed">{displayError}</div>
             </div>
           )}
 
@@ -203,7 +183,7 @@ export const AuthView: React.FC = () => {
             </div>
           )}
 
-          {/* Google SSO Button */}
+          {/* Google Sign-In Button */}
           {mode !== 'forgot_password' && (
             <div className="mb-6">
               <button
@@ -231,7 +211,7 @@ export const AuthView: React.FC = () => {
                     d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.3-6.4-5.2L1.9 16c1.8 3.7 5.6 7 10.1 7z"
                   />
                 </svg>
-                <span>Continue with Google</span>
+                <span>Sign in with Google</span>
               </button>
 
               <div className="relative my-6 text-center">

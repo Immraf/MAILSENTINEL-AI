@@ -90,7 +90,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
       return;
     }
     setNewProvider(provider);
-    setNewName(provider === 'gmail' ? 'Google Account' : 'Work Outlook (Microsoft 365)');
+    setNewName(provider === 'gmail' ? 'Gmail Account' : 'Work Outlook (Microsoft 365)');
     setNewEmail(provider === 'gmail' ? 'user@gmail.com' : 'user@company.com');
     setShowConnectModal(true);
   };
