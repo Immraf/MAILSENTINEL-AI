@@ -115,6 +115,17 @@ oauthRouter.post('/gmail/connect', authMiddleware, (req, res) => {
   const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
   const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${appUrl}/api/accounts/gmail/callback`;
 
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    return res.status(400).json({
+      error: {
+        code: 'GMAIL_NOT_CONFIGURED',
+        message: 'Gmail connection is not configured.',
+      },
+      configured: false,
+    });
+  }
+
   // 1. Check account limit (max 10)
   const currentAccounts = db.getAccounts(user.id);
   if (currentAccounts.length >= 10) {
@@ -205,48 +216,48 @@ oauthRouter.get('/gmail/callback', async (req, res) => {
     let emailAddress: string;
     let messagesTotal = 0;
 
-    // Check if real Google Client Secret is available for exchange
-    if (clientSecret && clientId) {
-      const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          code: String(code),
-          client_id: clientId,
-          client_secret: clientSecret,
-          redirect_uri: redirectUri,
-          grant_type: 'authorization_code',
-        }),
-      });
-
-      if (!tokenRes.ok) {
-        const errBody = await tokenRes.text();
-        console.error('Google token exchange error:', errBody);
-        return res.redirect(`/?oauth_error=token_exchange_failed`);
-      }
-
-      const tokenData = await tokenRes.json();
-      accessToken = tokenData.access_token;
-      refreshToken = tokenData.refresh_token;
-
-      // Fetch user profile from Gmail API
-      const profileRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-
-      if (!profileRes.ok) {
-        return res.redirect(`/?oauth_error=profile_fetch_failed`);
-      }
-
-      const profileData = await profileRes.json();
-      emailAddress = profileData.emailAddress;
-      messagesTotal = profileData.messagesTotal || 0;
-    } else {
-      // In automated test harness or mock environment
-      accessToken = `mock-access-token-${Date.now()}`;
-      refreshToken = `mock-refresh-token-${Date.now()}`;
-      emailAddress = `user-${Date.now()}@gmail.com`;
+    // Verify real Google OAuth credentials are configured
+    if (!clientSecret || !clientId) {
+      console.error('Gmail OAuth exchange attempted but credentials are not configured');
+      return res.redirect(
+        `/?oauth_error=gmail_not_configured&message=${encodeURIComponent('Gmail connection is not configured.')}`
+      );
     }
+
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: String(code),
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    if (!tokenRes.ok) {
+      const errBody = await tokenRes.text();
+      console.error('Google token exchange error:', errBody);
+      return res.redirect(`/?oauth_error=token_exchange_failed`);
+    }
+
+    const tokenData = await tokenRes.json();
+    accessToken = tokenData.access_token;
+    refreshToken = tokenData.refresh_token;
+
+    // Fetch user profile from Gmail API
+    const profileRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!profileRes.ok) {
+      return res.redirect(`/?oauth_error=profile_fetch_failed`);
+    }
+
+    const profileData = await profileRes.json();
+    emailAddress = profileData.emailAddress;
+    messagesTotal = profileData.messagesTotal || 0;
 
     // 3. Enforce account limit (max 10)
     const existingAccounts = db.getAccounts(oauthRecord.userId);

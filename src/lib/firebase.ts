@@ -34,14 +34,12 @@ try {
   // Ignore in environments without window/indexedDB
 }
 
-// Configure Google Auth Provider strictly for MailSentinel application authentication
+// Configure Google Auth Provider strictly for MailSentinel application authentication (NO mailbox scopes)
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-// In-memory token cache for optional access token
-let cachedAccessToken: string | null = null;
 let isSigningIn = false;
-let activeSignInPromise: Promise<{ user: User; accessToken?: string } | null> | null = null;
+let activeSignInPromise: Promise<{ user: User } | null> | null = null;
 
 // Test Firestore connection on boot
 export async function testConnection() {
@@ -92,7 +90,7 @@ export async function resetPassword(email: string): Promise<void> {
 /**
  * Sign in using Google with Firebase Authentication Popup
  */
-export const googleSignIn = async (): Promise<{ user: User; accessToken?: string } | null> => {
+export const googleSignIn = async (): Promise<{ user: User } | null> => {
   if (activeSignInPromise) {
     return activeSignInPromise;
   }
@@ -101,11 +99,7 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken?: string
     try {
       isSigningIn = true;
       const result = await signInWithPopup(auth, googleProvider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (credential?.accessToken) {
-        cachedAccessToken = credential.accessToken;
-      }
-      return { user: result.user, accessToken: credential?.accessToken || '' };
+      return { user: result.user };
     } catch (error: any) {
       const code = error?.code || '';
       if (
@@ -146,7 +140,6 @@ export async function getFirebaseIdToken(forceRefresh = false): Promise<string |
  */
 export const logoutUser = async (): Promise<void> => {
   await signOut(auth);
-  cachedAccessToken = null;
 };
 
 export const logout = logoutUser;
@@ -165,28 +158,23 @@ export const initAuth = (
 ) => {
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
-      if (cachedAccessToken) {
-        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
-      } else if (!isSigningIn) {
-        if (onAuthSuccess) onAuthSuccess(user, null);
-      }
+      if (onAuthSuccess) onAuthSuccess(user, null);
     } else {
-      cachedAccessToken = null;
       if (onAuthFailure) onAuthFailure();
     }
   });
 };
 
 export const getAccessToken = async (): Promise<string | null> => {
-  return cachedAccessToken;
+  return null;
 };
 
 export const getCachedAccessToken = (): string | null => {
-  return cachedAccessToken;
+  return null;
 };
 
-export const setCachedAccessToken = (token: string | null) => {
-  cachedAccessToken = token;
+export const setCachedAccessToken = (_token: string | null) => {
+  // No-op: client never caches access tokens
 };
 
 // Firestore Error Handler conforming to the Firebase Skill schema

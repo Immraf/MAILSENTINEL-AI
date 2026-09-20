@@ -10,7 +10,7 @@ import {
   logoutUser,
   getFirebaseIdToken,
 } from '../lib/firebase';
-import { apiFetch } from '../lib/api';
+import { apiFetch, registerUnauthorizedHandler } from '../lib/api';
 import { AuthUser } from '../types';
 
 interface AuthContextType {
@@ -51,12 +51,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         },
         body: JSON.stringify({
           displayName: fbUser.displayName || fbUser.email?.split('@')[0],
+          photoURL: fbUser.photoURL || undefined,
+          emailVerified: fbUser.emailVerified,
+          provider: fbUser.providerData?.[0]?.providerId === 'google.com' ? 'google' : 'password',
         }),
       }).catch((e) => console.warn('Could not sync profile to backend:', e));
     } catch (err) {
       console.warn('Backend profile sync error:', err);
     }
   };
+
+  useEffect(() => {
+    // Listen for permanent unauthorized API responses to clear session gracefully
+    registerUnauthorizedHandler((msg) => {
+      setAuthError(msg);
+      logoutUser().catch(() => null);
+      setUser(null);
+      setFirebaseUser(null);
+    });
+    return () => {
+      registerUnauthorizedHandler(null);
+    };
+  }, []);
 
   useEffect(() => {
     // Listen to Firebase Authentication state changes

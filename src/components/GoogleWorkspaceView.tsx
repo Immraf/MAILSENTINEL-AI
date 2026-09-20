@@ -791,7 +791,7 @@ export const GoogleWorkspaceView: React.FC<GoogleWorkspaceViewProps> = ({
                 <label className="block text-slate-300 font-medium mb-1">Event Title</label>
                 <input
                   type="text"
-                  value={newEventTitle}
+                  value={newEventTitle || ''}
                   onChange={(e) => setNewEventTitle(e.target.value)}
                   placeholder="e.g. Budget Review Meeting"
                   className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 focus:outline-hidden focus:border-indigo-500"
@@ -803,7 +803,7 @@ export const GoogleWorkspaceView: React.FC<GoogleWorkspaceViewProps> = ({
                   <label className="block text-slate-300 font-medium mb-1">Date</label>
                   <input
                     type="date"
-                    value={newEventDate}
+                    value={newEventDate || ''}
                     onChange={(e) => setNewEventDate(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 focus:outline-hidden focus:border-indigo-500"
                   />
@@ -812,7 +812,7 @@ export const GoogleWorkspaceView: React.FC<GoogleWorkspaceViewProps> = ({
                   <label className="block text-slate-300 font-medium mb-1">Time</label>
                   <input
                     type="time"
-                    value={newEventTime}
+                    value={newEventTime || ''}
                     onChange={(e) => setNewEventTime(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 focus:outline-hidden focus:border-indigo-500"
                   />
@@ -823,7 +823,7 @@ export const GoogleWorkspaceView: React.FC<GoogleWorkspaceViewProps> = ({
                 <label className="block text-slate-300 font-medium mb-1">Description / Notes</label>
                 <textarea
                   rows={3}
-                  value={newEventDescription}
+                  value={newEventDescription || ''}
                   onChange={(e) => setNewEventDescription(e.target.value)}
                   placeholder="Context, agenda, or meeting details..."
                   className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 focus:outline-hidden focus:border-indigo-500"
@@ -872,7 +872,7 @@ export const GoogleWorkspaceView: React.FC<GoogleWorkspaceViewProps> = ({
                 <label className="block text-slate-300 font-medium mb-1">Task Title</label>
                 <input
                   type="text"
-                  value={newTaskTitle}
+                  value={newTaskTitle || ''}
                   onChange={(e) => setNewTaskTitle(e.target.value)}
                   placeholder="e.g. Follow up on vendor invoice"
                   className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 focus:outline-hidden focus:border-indigo-500"
@@ -883,7 +883,7 @@ export const GoogleWorkspaceView: React.FC<GoogleWorkspaceViewProps> = ({
                 <label className="block text-slate-300 font-medium mb-1">Due Date (Optional)</label>
                 <input
                   type="date"
-                  value={newTaskDueDate}
+                  value={newTaskDueDate || ''}
                   onChange={(e) => setNewTaskDueDate(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 focus:outline-hidden focus:border-indigo-500"
                 />
@@ -893,7 +893,7 @@ export const GoogleWorkspaceView: React.FC<GoogleWorkspaceViewProps> = ({
                 <label className="block text-slate-300 font-medium mb-1">Notes (Optional)</label>
                 <textarea
                   rows={3}
-                  value={newTaskNotes}
+                  value={newTaskNotes || ''}
                   onChange={(e) => setNewTaskNotes(e.target.value)}
                   placeholder="Additional context or checklist..."
                   className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 focus:outline-hidden focus:border-indigo-500"

@@ -259,6 +259,10 @@ export interface AuditLog {
   timestamp: string;
   actionType:
     | 'LOGIN'
+    | 'LOGOUT'
+    | 'LOGIN_FAILED'
+    | 'PROFILE_CREATED'
+    | 'PROFILE_UPDATED'
     | 'OAUTH_CONNECT'
     | 'OAUTH_DISCONNECT'
     | 'ACCOUNT_SYNC'

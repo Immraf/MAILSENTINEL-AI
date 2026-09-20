@@ -162,7 +162,7 @@ export const Header: React.FC<HeaderProps> = ({
           <input
             id="global-email-search-input"
             type="text"
-            value={searchQuery}
+            value={searchQuery || ''}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="Search across all connected inboxes, threads, entities, or threats..."
             className="w-full pl-9 pr-8 py-1.5 text-xs rounded-lg bg-slate-800/80 border border-slate-700/80 text-slate-200 placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500 transition"

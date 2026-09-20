@@ -32,12 +32,13 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if isOwner(userId);
       allow create: if isOwner(userId) && isValidId(userId) &&
-        incoming().keys().hasAll(['id', 'email']) &&
-        incoming().id == userId &&
-        incoming().email is string && incoming().email.size() <= 256;
+        (incoming().keys().hasAll(['id', 'email']) || incoming().keys().hasAll(['uid', 'email'])) &&
+        (incoming().id == userId || incoming().uid == userId) &&
+        incoming().email is string && incoming().email.size() <= 256 &&
+        !incoming().keys().hasAny(['password', 'accessToken', 'refreshToken', 'clientSecret', 'privateKey', 'encryptionKey']);
       allow update: if isOwner(userId) &&
-        incoming().id == existing().id &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']);
+        !incoming().keys().hasAny(['password', 'accessToken', 'refreshToken', 'clientSecret', 'privateKey', 'encryptionKey']) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt', 'lastLoginAt', 'provider', 'emailVerified']);
       allow delete: if isOwner(userId);
 
       // 1. Connected email accounts (OAuth tokens / credentials strictly blocked from client write)

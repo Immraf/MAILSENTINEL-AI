@@ -448,13 +448,13 @@ export const SecurityCenterView: React.FC<SecurityCenterViewProps> = ({
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Whitelisted Senders & Domains</span>
                 </h4>
-                <span className="text-xs text-slate-400">{settings.whitelist.length} entries</span>
+                <span className="text-xs text-slate-400">{(settings.whitelist || []).length} entries</span>
               </div>
 
               <div className="flex gap-2">
                 <input
                   type="text"
-                  value={newWhiteVal}
+                  value={newWhiteVal || ''}
                   onChange={(e) => setNewWhiteVal(e.target.value)}
                   placeholder="e.g. partner-corp.com or ceo@safe.com"
                   className="flex-1 px-3 py-1.5 text-xs rounded-lg bg-slate-800 border border-slate-700 text-slate-200 placeholder-slate-500 focus:outline-hidden"
@@ -496,13 +496,13 @@ export const SecurityCenterView: React.FC<SecurityCenterViewProps> = ({
                   <FileWarning className="w-4 h-4" />
                   <span>Blocked Domains & Senders</span>
                 </h4>
-                <span className="text-xs text-slate-400">{settings.blacklist.length} entries</span>
+                <span className="text-xs text-slate-400">{(settings.blacklist || []).length} entries</span>
               </div>
 
               <div className="flex gap-2">
                 <input
                   type="text"
-                  value={newBlackVal}
+                  value={newBlackVal || ''}
                   onChange={(e) => setNewBlackVal(e.target.value)}
                   placeholder="e.g. evil-phish.biz or spammer@bad.org"
                   className="flex-1 px-3 py-1.5 text-xs rounded-lg bg-slate-800 border border-slate-700 text-slate-200 placeholder-slate-500 focus:outline-hidden"
@@ -615,7 +615,7 @@ export const SecurityCenterView: React.FC<SecurityCenterViewProps> = ({
                 <label className="block text-slate-400 mb-1">Rule Name</label>
                 <input
                   type="text"
-                  value={ruleName}
+                  value={ruleName || ''}
                   onChange={(e) => setRuleName(e.target.value)}
                   placeholder="e.g. Isolate High-Risk Invoices"
                   className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200"
@@ -625,7 +625,7 @@ export const SecurityCenterView: React.FC<SecurityCenterViewProps> = ({
               <div>
                 <label className="block text-slate-400 mb-1">Trigger Condition</label>
                 <select
-                  value={ruleCondition}
+                  value={ruleCondition || 'high_risk'}
                   onChange={(e) => setRuleCondition(e.target.value as any)}
                   className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200"
                 >
@@ -639,7 +639,7 @@ export const SecurityCenterView: React.FC<SecurityCenterViewProps> = ({
               <div>
                 <label className="block text-slate-400 mb-1">Autonomous Action</label>
                 <select
-                  value={ruleAction}
+                  value={ruleAction || 'quarantine'}
                   onChange={(e) => setRuleAction(e.target.value as any)}
                   className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200"
                 >

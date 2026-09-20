@@ -237,7 +237,7 @@ export const AuthView: React.FC = () => {
                   <input
                     id="input-display-name"
                     type="text"
-                    value={displayName}
+                    value={displayName || ''}
                     onChange={(e) => setDisplayName(e.target.value)}
                     placeholder="e.g. Alex Carter"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors"
@@ -256,7 +256,7 @@ export const AuthView: React.FC = () => {
                   id="input-email"
                   type="email"
                   required
-                  value={email}
+                  value={email || ''}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="name@company.com"
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors"
@@ -290,7 +290,7 @@ export const AuthView: React.FC = () => {
                     id="input-password"
                     type="password"
                     required
-                    value={password}
+                    value={password || ''}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors"
@@ -310,7 +310,7 @@ export const AuthView: React.FC = () => {
                     id="input-confirm-password"
                     type="password"
                     required
-                    value={confirmPassword}
+                    value={confirmPassword || ''}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="••••••••"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors"

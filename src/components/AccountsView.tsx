@@ -120,9 +120,13 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
       const data = await res.json();
 
       if (!res.ok) {
+        const errorMsg =
+          data.error?.message ||
+          data.message ||
+          (provider === 'gmail' && !data.configured ? 'Gmail connection is not configured.' : `Failed to initiate OAuth flow for ${provider}.`);
         setOauthStatusMsg({
           type: 'error',
-          text: data.message || `Failed to initiate OAuth flow for ${provider}.`,
+          text: errorMsg,
         });
         setIsStartingOAuth(false);
         return;
@@ -281,6 +285,35 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     }
   };
 
+  // Section 14 Separate Status indicators
+  const hasGmailConnected = accounts.some(
+    (a) => a.provider === 'gmail' && (a.status === 'Connected' || a.status === 'Active')
+  );
+  const hasGmailReauth = accounts.some(
+    (a) =>
+      a.provider === 'gmail' &&
+      (a.status === 'Needs Reauthentication' || a.status.toLowerCase().includes('reauth') || a.status === 'Error')
+  );
+  const gmailStatusText = hasGmailConnected
+    ? 'Connected'
+    : hasGmailReauth
+    ? 'Needs Reauthentication'
+    : 'Not Connected';
+
+  const hasOutlookConnected = accounts.some(
+    (a) => a.provider === 'outlook' && (a.status === 'Connected' || a.status === 'Active')
+  );
+  const hasOutlookReauth = accounts.some(
+    (a) =>
+      a.provider === 'outlook' &&
+      (a.status === 'Needs Reauthentication' || a.status.toLowerCase().includes('reauth') || a.status === 'Error')
+  );
+  const outlookStatusText = hasOutlookConnected
+    ? 'Connected'
+    : hasOutlookReauth
+    ? 'Needs Reauthentication'
+    : 'Not Connected';
+
   return (
     <div className="p-4 md:p-8 space-y-8 max-w-6xl mx-auto text-slate-100">
       {/* Top Header & Fast Action Buttons */}
@@ -334,6 +367,79 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
               ({gmailCount} Gmail, {outlookCount} Outlook)
             </span>
           </div>
+        </div>
+      </div>
+
+      {/* Separate Status Overview Panel (Strict separation of MailSentinel Auth vs Mailboxes) */}
+      <div id="auth-mailbox-status-overview" className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-6">
+          <div>
+            <span className="text-[11px] font-medium text-slate-400 block uppercase tracking-wider">MailSentinel Account</span>
+            <div className="flex items-center gap-1.5 mt-1">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-xs font-semibold text-emerald-400">Authenticated</span>
+            </div>
+          </div>
+
+          <div className="hidden sm:block h-7 w-px bg-slate-800" />
+
+          <div>
+            <span className="text-[11px] font-medium text-slate-400 block uppercase tracking-wider">Gmail</span>
+            <div className="flex items-center gap-1.5 mt-1">
+              {gmailStatusText === 'Connected' ? (
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              ) : gmailStatusText === 'Needs Reauthentication' ? (
+                <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+              ) : (
+                <span className="w-2 h-2 rounded-full bg-slate-600 inline-block" />
+              )}
+              <span
+                className={`text-xs font-semibold ${
+                  gmailStatusText === 'Connected'
+                    ? 'text-emerald-400'
+                    : gmailStatusText === 'Needs Reauthentication'
+                    ? 'text-amber-400'
+                    : 'text-slate-400'
+                }`}
+              >
+                {gmailStatusText}
+              </span>
+            </div>
+          </div>
+
+          <div className="hidden sm:block h-7 w-px bg-slate-800" />
+
+          <div>
+            <span className="text-[11px] font-medium text-slate-400 block uppercase tracking-wider">Outlook</span>
+            <div className="flex items-center gap-1.5 mt-1">
+              {outlookStatusText === 'Connected' ? (
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              ) : outlookStatusText === 'Needs Reauthentication' ? (
+                <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+              ) : (
+                <span className="w-2 h-2 rounded-full bg-slate-600 inline-block" />
+              )}
+              <span
+                className={`text-xs font-semibold ${
+                  outlookStatusText === 'Connected'
+                    ? 'text-emerald-400'
+                    : outlookStatusText === 'Needs Reauthentication'
+                    ? 'text-amber-400'
+                    : 'text-slate-400'
+                }`}
+              >
+                {outlookStatusText}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="text-[11px] text-slate-500">
+          <span>Strict separation: </span>
+          <span className="text-slate-400 font-medium">Google Sign-In</span>
+          <span> authenticates your account, while </span>
+          <span className="text-slate-400 font-medium">Connect Gmail</span>
+          <span> links your monitored mailbox.</span>
         </div>
       </div>
 
@@ -590,7 +696,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
           <div>
             <label className="block text-slate-400 mb-1">Target Account</label>
             <select
-              value={simAccount}
+              value={simAccount || ''}
               onChange={(e) => setSimAccount(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200"
             >
@@ -606,7 +712,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
             <label className="block text-slate-400 mb-1">Sender Email</label>
             <input
               type="text"
-              value={simSender}
+              value={simSender || ''}
               onChange={(e) => setSimSender(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 font-mono"
             />
@@ -616,7 +722,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
             <label className="block text-slate-400 mb-1">Sender Display Name</label>
             <input
               type="text"
-              value={simSenderName}
+              value={simSenderName || ''}
               onChange={(e) => setSimSenderName(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200"
             />
@@ -626,7 +732,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
             <label className="block text-slate-400 mb-1">Subject</label>
             <input
               type="text"
-              value={simSubject}
+              value={simSubject || ''}
               onChange={(e) => setSimSubject(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200"
             />
@@ -636,7 +742,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
             <label className="block text-slate-400 mb-1">Body Text</label>
             <textarea
               rows={3}
-              value={simBody}
+              value={simBody || ''}
               onChange={(e) => setSimBody(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200"
             />
@@ -646,7 +752,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
             <label className="flex items-center gap-2 cursor-pointer text-slate-300">
               <input
                 type="checkbox"
-                checked={simHasExecutable}
+                checked={Boolean(simHasExecutable)}
                 onChange={(e) => setSimHasExecutable(e.target.checked)}
                 className="rounded border-slate-700 text-rose-600 focus:ring-rose-500"
               />
@@ -745,7 +851,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 <label className="block text-slate-400 mb-1">Account Display Name</label>
                 <input
                   type="text"
-                  value={newName}
+                  value={newName || ''}
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder="e.g. Work Mailbox, Executive Outlook"
                   className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 placeholder-slate-500"
@@ -756,7 +862,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 <label className="block text-slate-400 mb-1">Email Address</label>
                 <input
                   type="email"
-                  value={newEmail}
+                  value={newEmail || ''}
                   onChange={(e) => setNewEmail(e.target.value)}
                   placeholder="user@example.com"
                   className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 placeholder-slate-500 font-mono"

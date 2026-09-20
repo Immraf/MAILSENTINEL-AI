@@ -132,9 +132,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
               <input
                 type="checkbox"
-                checked={securitySettings.autoQuarantine}
+                checked={Boolean(securitySettings.autoQuarantine ?? securitySettings.autoQuarantinePhishing ?? true)}
                 onChange={(e) =>
-                  onUpdateSecurity({ ...securitySettings, autoQuarantine: e.target.checked })
+                  onUpdateSecurity({
+                    ...securitySettings,
+                    autoQuarantine: e.target.checked,
+                    autoQuarantinePhishing: e.target.checked,
+                  })
                 }
                 className="rounded bg-slate-800 border-slate-700 text-indigo-600"
               />
@@ -245,7 +249,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <label className="flex items-start gap-2.5 cursor-pointer">
               <input
                 type="checkbox"
-                checked={safeNotif.whatsappOptIn ?? false}
+                checked={Boolean(safeNotif.whatsappOptIn)}
                 onChange={(e) =>
                   updateNotif({
                     whatsappOptIn: e.target.checked,
@@ -347,7 +351,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <label className="block text-slate-400 mb-1">Start Time</label>
               <input
                 type="time"
-                value={quietHours.start}
+                value={quietHours.start || '22:00'}
                 onChange={(e) =>
                   updateNotif({
                     quietHours: { ...quietHours, start: e.target.value },
@@ -360,7 +364,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <label className="block text-slate-400 mb-1">End Time</label>
               <input
                 type="time"
-                value={quietHours.end}
+                value={quietHours.end || '07:00'}
                 onChange={(e) =>
                   updateNotif({
                     quietHours: { ...quietHours, end: e.target.value },
@@ -374,7 +378,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <label className="flex items-center gap-2 text-slate-300 cursor-pointer pt-1">
             <input
               type="checkbox"
-              checked={quietHours.allowCriticalSecurity}
+              checked={Boolean(quietHours.allowCriticalSecurity ?? true)}
               onChange={(e) =>
                 updateNotif({
                   quietHours: {

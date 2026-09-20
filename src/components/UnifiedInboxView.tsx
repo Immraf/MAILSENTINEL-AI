@@ -251,7 +251,7 @@ export const UnifiedInboxView: React.FC<UnifiedInboxViewProps> = ({
             <input
               type="text"
               id="inbox-search-input"
-              value={localSearch}
+              value={localSearch || ''}
               onChange={(e) => handleFilterChange(setLocalSearch, e.target.value)}
               placeholder="Search sender, subject, AI summary..."
               className="w-full pl-9 pr-8 py-1.5 text-xs rounded-xl bg-slate-800/90 border border-slate-700 text-slate-100 placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
@@ -273,7 +273,7 @@ export const UnifiedInboxView: React.FC<UnifiedInboxViewProps> = ({
           <div className="flex items-center gap-1 bg-slate-800/80 rounded-lg px-2.5 py-1 border border-slate-700 text-xs">
             <span className="text-[11px] text-slate-400">Account:</span>
             <select
-              value={accountFilter}
+              value={accountFilter || 'all'}
               onChange={(e) => handleFilterChange(setAccountFilter, e.target.value)}
               className="bg-transparent text-slate-200 focus:outline-hidden text-xs cursor-pointer font-medium"
             >
@@ -292,7 +292,7 @@ export const UnifiedInboxView: React.FC<UnifiedInboxViewProps> = ({
           <div className="flex items-center gap-1 bg-slate-800/80 rounded-lg px-2.5 py-1 border border-slate-700 text-xs">
             <span className="text-[11px] text-slate-400">Priority:</span>
             <select
-              value={priorityFilter}
+              value={priorityFilter || 'all'}
               onChange={(e) => handleFilterChange(setPriorityFilter, e.target.value)}
               className="bg-transparent text-slate-200 focus:outline-hidden text-xs cursor-pointer font-medium"
             >
@@ -308,7 +308,7 @@ export const UnifiedInboxView: React.FC<UnifiedInboxViewProps> = ({
           <div className="flex items-center gap-1 bg-slate-800/80 rounded-lg px-2.5 py-1 border border-slate-700 text-xs">
             <span className="text-[11px] text-slate-400">Category:</span>
             <select
-              value={categoryFilter}
+              value={categoryFilter || 'all'}
               onChange={(e) => handleFilterChange(setCategoryFilter, e.target.value)}
               className="bg-transparent text-slate-200 focus:outline-hidden text-xs cursor-pointer font-medium"
             >
@@ -324,7 +324,7 @@ export const UnifiedInboxView: React.FC<UnifiedInboxViewProps> = ({
           <div className="flex items-center gap-1 bg-slate-800/80 rounded-lg px-2.5 py-1 border border-slate-700 text-xs">
             <span className="text-[11px] text-slate-400">Security:</span>
             <select
-              value={securityFilter}
+              value={securityFilter || 'all'}
               onChange={(e) => handleFilterChange(setSecurityFilter, e.target.value)}
               className="bg-transparent text-slate-200 focus:outline-hidden text-xs cursor-pointer font-medium"
             >
@@ -341,7 +341,7 @@ export const UnifiedInboxView: React.FC<UnifiedInboxViewProps> = ({
             <ArrowUpDown className="w-3 h-3 text-slate-400" />
             <span className="text-[11px] text-slate-400">Sort:</span>
             <select
-              value={sortBy}
+              value={sortBy || 'newest'}
               onChange={(e) => handleFilterChange(setSortBy, e.target.value as SortOption)}
               className="bg-transparent text-slate-200 focus:outline-hidden text-xs cursor-pointer font-medium"
             >
@@ -356,7 +356,7 @@ export const UnifiedInboxView: React.FC<UnifiedInboxViewProps> = ({
           <label className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/60 border border-slate-700/60 text-xs text-slate-300 cursor-pointer hover:bg-slate-800">
             <input
               type="checkbox"
-              checked={hasAttachmentOnly}
+              checked={Boolean(hasAttachmentOnly)}
               onChange={(e) => handleFilterChange(setHasAttachmentOnly, e.target.checked)}
               className="w-3.5 h-3.5 rounded-sm text-indigo-600 bg-slate-900 border-slate-700"
             />

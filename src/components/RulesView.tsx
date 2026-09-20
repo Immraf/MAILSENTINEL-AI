@@ -229,7 +229,7 @@ export const RulesView: React.FC<RulesViewProps> = ({
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
             <input
               type="text"
-              value={searchQuery}
+              value={searchQuery || ''}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search rules..."
               className="pl-8 pr-3 py-1.5 text-xs rounded-lg bg-slate-800 border border-slate-700 text-slate-200 placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
@@ -360,7 +360,7 @@ export const RulesView: React.FC<RulesViewProps> = ({
                 <input
                   type="text"
                   required
-                  value={ruleName}
+                  value={ruleName || ''}
                   onChange={(e) => setRuleName(e.target.value)}
                   placeholder="e.g. VIP Priority for Thesis Advisor"
                   className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 placeholder-slate-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
@@ -371,7 +371,7 @@ export const RulesView: React.FC<RulesViewProps> = ({
                 <div>
                   <label className="block text-slate-300 font-medium mb-1">Condition Type</label>
                   <select
-                    value={conditionType}
+                    value={conditionType || 'sender'}
                     onChange={(e) => setConditionType(e.target.value as any)}
                     className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 focus:outline-hidden"
                   >
@@ -387,7 +387,7 @@ export const RulesView: React.FC<RulesViewProps> = ({
                   <input
                     type="text"
                     required
-                    value={conditionValue}
+                    value={conditionValue || ''}
                     onChange={(e) => setConditionValue(e.target.value)}
                     placeholder={
                       conditionType === 'sender'
@@ -406,7 +406,7 @@ export const RulesView: React.FC<RulesViewProps> = ({
               <div>
                 <label className="block text-slate-300 font-medium mb-1">Action to Take</label>
                 <select
-                  value={actionType}
+                  value={actionType || 'increase_priority'}
                   onChange={(e) => setActionType(e.target.value as any)}
                   className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 focus:outline-hidden"
                 >
@@ -423,7 +423,7 @@ export const RulesView: React.FC<RulesViewProps> = ({
                 <label className="block text-slate-300 font-medium mb-1">Description (Optional)</label>
                 <input
                   type="text"
-                  value={ruleDescription}
+                  value={ruleDescription || ''}
                   onChange={(e) => setRuleDescription(e.target.value)}
                   placeholder="Explain why this rule exists..."
                   className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 placeholder-slate-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"

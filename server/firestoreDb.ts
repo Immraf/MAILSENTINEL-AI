@@ -46,6 +46,9 @@ import {
 } from '../src/mockData';
 
 export class FirestoreDb {
+  private static userMemoryCache: Map<string, FirestoreUserDoc> = new Map();
+  private static auditLogsMemoryCache: Map<string, FirestoreAuditLogDoc[]> = new Map();
+
   private static get db() {
     return getAdminFirestore();
   }
@@ -54,34 +57,73 @@ export class FirestoreDb {
   // 1. Users (/users/{userId})
   // ==========================================================================
   static async getUser(userId: string): Promise<FirestoreUserDoc | null> {
-    const snap = await this.db.doc(`users/${userId}`).get();
-    if (!snap.exists) return null;
-    return snap.data() as FirestoreUserDoc;
+    try {
+      const snap = await this.db.doc(`users/${userId}`).get();
+      if (!snap.exists) {
+        return this.userMemoryCache.get(userId) || null;
+      }
+      const data = snap.data() as FirestoreUserDoc;
+      this.userMemoryCache.set(userId, data);
+      return data;
+    } catch (err: any) {
+      console.warn(`[FirestoreDb] getUser fallback for ${userId}:`, err?.message || err);
+      return this.userMemoryCache.get(userId) || null;
+    }
   }
 
   static async createUser(user: FirestoreUserDoc): Promise<FirestoreUserDoc> {
-    const userRef = this.db.doc(`users/${user.id}`);
+    const userId = user.id || user.uid;
+    if (!userId) {
+      throw new Error('User ID is required to create Firestore user document');
+    }
     const now = new Date().toISOString();
     const docData: FirestoreUserDoc = {
       ...user,
+      id: userId,
+      uid: userId,
       createdAt: user.createdAt || now,
       updatedAt: now,
+      lastLoginAt: user.lastLoginAt || now,
     };
-    await userRef.set(docData, { merge: true });
+    this.userMemoryCache.set(userId, docData);
 
-    // Initialize default preferences & security rules if not existing
-    await this.initUserDefaults(user.id);
+    try {
+      const userRef = this.db.doc(`users/${userId}`);
+      await userRef.set(docData, { merge: true });
+      await this.initUserDefaults(userId);
+    } catch (err: any) {
+      console.warn(`[FirestoreDb] createUser cloud sync notice for ${userId}:`, err?.message || err);
+    }
+
     return docData;
   }
 
   static async updateUser(userId: string, patch: Partial<FirestoreUserDoc>): Promise<FirestoreUserDoc | null> {
-    const userRef = this.db.doc(`users/${userId}`);
-    const snap = await userRef.get();
-    if (!snap.exists) return null;
     const now = new Date().toISOString();
-    const updated = { ...snap.data(), ...patch, updatedAt: now };
-    await userRef.set(updated, { merge: true });
-    return updated as FirestoreUserDoc;
+    let existing = this.userMemoryCache.get(userId);
+
+    try {
+      const userRef = this.db.doc(`users/${userId}`);
+      const snap = await userRef.get();
+      if (snap.exists) {
+        existing = snap.data() as FirestoreUserDoc;
+      }
+    } catch (err: any) {
+      console.warn(`[FirestoreDb] updateUser read warning for ${userId}:`, err?.message || err);
+    }
+
+    if (!existing) return null;
+    const updated: FirestoreUserDoc = { ...existing, ...patch, updatedAt: now };
+    this.userMemoryCache.set(userId, updated);
+
+    try {
+      const userRef = this.db.doc(`users/${userId}`);
+      await userRef.set(updated, { merge: true });
+    } catch (err: any) {
+      console.warn(`[FirestoreDb] updateUser write warning for ${userId}:`, err?.message || err);
+    }
+
+    return updated;
   }
 
   private static async initUserDefaults(userId: string): Promise<void> {
@@ -726,11 +768,24 @@ export class FirestoreDb {
   // 20. Audit Logs (/users/{userId}/auditLogs/{logId})
   // ==========================================================================
   static async getAuditLogs(userId: string, limitCount = 100): Promise<FirestoreAuditLogDoc[]> {
-    const snap = await this.db.collection(`users/${userId}/auditLogs`)
-      .limit(limitCount)
-      .get();
-    const logs = snap.docs.map((d) => d.data() as FirestoreAuditLogDoc);
-    return logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    try {
+      const snap = await this.db.collection(`users/${userId}/auditLogs`)
+        .limit(limitCount)
+        .get();
+      const logs = snap.docs.map((d) => d.data() as FirestoreAuditLogDoc);
+      const combined = [...logs];
+      const cached = this.auditLogsMemoryCache.get(userId) || [];
+      for (const c of cached) {
+        if (!combined.some((l) => l.id === c.id)) {
+          combined.push(c);
+        }
+      }
+      return combined.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, limitCount);
+    } catch (err: any) {
+      console.warn(`[FirestoreDb] getAuditLogs fallback for ${userId}:`, err?.message || err);
+      const cached = this.auditLogsMemoryCache.get(userId) || [];
+      return cached.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, limitCount);
+    }
   }
 
   static async addAuditLog(userId: string, log: Omit<FirestoreAuditLogDoc, 'userId'>): Promise<FirestoreAuditLogDoc> {
@@ -740,7 +795,17 @@ export class FirestoreDb {
       id: log.id || `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       timestamp: log.timestamp || new Date().toISOString(),
     };
-    await this.db.doc(`users/${userId}/auditLogs/${logData.id}`).set(logData, { merge: true });
+
+    const userLogs = this.auditLogsMemoryCache.get(userId) || [];
+    userLogs.unshift(logData);
+    this.auditLogsMemoryCache.set(userId, userLogs);
+
+    try {
+      await this.db.doc(`users/${userId}/auditLogs/${logData.id}`).set(logData, { merge: true });
+    } catch (err: any) {
+      console.warn(`[FirestoreDb] addAuditLog cloud sync notice for ${userId}:`, err?.message || err);
+    }
+
     return logData;
   }
 

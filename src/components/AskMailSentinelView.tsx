@@ -630,7 +630,7 @@ Try asking one of the suggested questions below!`,
         <div className="relative flex-1">
           <input
             type="text"
-            value={inputPrompt}
+            value={inputPrompt || ''}
             onChange={(e) => setInputPrompt(e.target.value)}
             placeholder="Ask anything about your emails, deadlines, supervisor directives, or security..."
             disabled={isLoading}

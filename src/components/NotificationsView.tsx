@@ -39,6 +39,7 @@ import {
   NotificationItem,
   NotificationDeliveryItem,
   NotificationChannel,
+  normalizeNotificationConfig,
 } from '../types';
 import { apiFetch, apiRequest } from '../lib/api';
 import {
@@ -64,7 +65,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
   onUpdateConfig,
 }) => {
   const [activeTab, setActiveTab] = useState<'preferences' | 'devices' | 'whatsapp' | 'ledger' | 'simulator'>('preferences');
-  const [localConfig, setLocalConfig] = useState<NotificationConfig>(config);
+  const [localConfig, setLocalConfig] = useState<NotificationConfig>(() => normalizeNotificationConfig(config));
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   // Live notifications & delivery states
@@ -128,7 +129,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
 
   // Sync when prop updates
   useEffect(() => {
-    setLocalConfig(config);
+    setLocalConfig(normalizeNotificationConfig(config));
   }, [config]);
 
   // Fetch notifications and deliveries
@@ -736,7 +737,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                 </div>
                 <input
                   type="checkbox"
-                  checked={localConfig.browserPushEnabled ?? localConfig.pushEnabled ?? true}
+                  checked={Boolean(localConfig.browserPushEnabled ?? localConfig.pushEnabled ?? true)}
                   onChange={(e) =>
                     setLocalConfig({ ...localConfig, browserPushEnabled: e.target.checked, pushEnabled: e.target.checked })
                   }
@@ -755,7 +756,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                 </div>
                 <input
                   type="checkbox"
-                  checked={localConfig.mobilePushEnabled ?? false}
+                  checked={Boolean(localConfig.mobilePushEnabled)}
                   onChange={(e) =>
                     setLocalConfig({ ...localConfig, mobilePushEnabled: e.target.checked })
                   }
@@ -774,7 +775,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                 </div>
                 <input
                   type="checkbox"
-                  checked={localConfig.desktopEnabled ?? true}
+                  checked={Boolean(localConfig.desktopEnabled ?? true)}
                   onChange={(e) =>
                     setLocalConfig({ ...localConfig, desktopEnabled: e.target.checked })
                   }
@@ -807,7 +808,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                   <label className="flex items-start gap-2 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={localConfig.whatsappOptIn ?? localConfig.whatsappEnabled ?? false}
+                      checked={Boolean(localConfig.whatsappOptIn ?? localConfig.whatsappEnabled)}
                       onChange={(e) =>
                         setLocalConfig({
                           ...localConfig,
@@ -1015,7 +1016,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                   </div>
                   <input
                     type="checkbox"
-                    checked={localConfig.quietHours?.enabled ?? localConfig.quietHoursEnabled ?? false}
+                    checked={Boolean(localConfig.quietHours?.enabled ?? localConfig.quietHoursEnabled ?? false)}
                     onChange={(e) => {
                       const enabled = e.target.checked;
                       setLocalConfig({
@@ -1090,7 +1091,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                 </div>
                 <input
                   type="checkbox"
-                  checked={localConfig.quietHours?.allowCriticalSecurity ?? true}
+                  checked={Boolean(localConfig.quietHours?.allowCriticalSecurity ?? true)}
                   onChange={(e) => {
                     const allowCriticalSecurity = e.target.checked;
                     setLocalConfig({
@@ -1583,7 +1584,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                   <label className="flex items-start gap-2.5 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={waOptInChecked}
+                      checked={Boolean(waOptInChecked)}
                       onChange={(e) => setWaOptInChecked(e.target.checked)}
                       className="mt-0.5 w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 bg-slate-900 border-slate-600 cursor-pointer"
                     />
@@ -1772,7 +1773,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                 <input
                   type="text"
                   placeholder="wamid.HBgL..."
-                  value={simTargetWamid}
+                  value={simTargetWamid || ''}
                   onChange={(e) => setSimTargetWamid(e.target.value)}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-slate-800 border border-slate-700 text-white font-mono placeholder-slate-500"
                 />
@@ -1781,7 +1782,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
               <div className="space-y-1">
                 <label className="block text-[11px] text-slate-400 font-medium">Target Webhook Status Event</label>
                 <select
-                  value={simTargetStatus}
+                  value={simTargetStatus || 'delivered'}
                   onChange={(e) => setSimTargetStatus(e.target.value as any)}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-slate-800 border border-slate-700 text-white"
                 >
@@ -2223,7 +2224,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
               <div>
                 <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Target Channel</label>
                 <select
-                  value={simChannel}
+                  value={simChannel || 'browser_push'}
                   onChange={(e) => setSimChannel(e.target.value as NotificationChannel)}
                   className="w-full px-3 py-1.5 text-xs rounded-lg bg-slate-800 border border-slate-700 text-slate-100 font-mono"
                 >
@@ -2265,7 +2266,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                 <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Email Subject</label>
                 <input
                   type="text"
-                  value={simSubject}
+                  value={simSubject || ''}
                   onChange={(e) => setSimSubject(e.target.value)}
                   className="w-full px-3 py-1.5 text-xs rounded-lg bg-slate-800 border border-slate-700 text-slate-100"
                 />
@@ -2275,7 +2276,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                 <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Email Body</label>
                 <textarea
                   rows={3}
-                  value={simBody}
+                  value={simBody || ''}
                   onChange={(e) => setSimBody(e.target.value)}
                   className="w-full px-3 py-1.5 text-xs rounded-lg bg-slate-800 border border-slate-700 text-slate-100"
                 />

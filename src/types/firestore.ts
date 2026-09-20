@@ -22,11 +22,15 @@ import {
  */
 export interface FirestoreUserDoc {
   id: string; // Firebase Auth UID
+  uid?: string; // Firebase Auth UID
   email: string;
   displayName?: string;
   photoURL?: string;
+  emailVerified?: boolean;
+  provider?: string;
   createdAt: string;
   updatedAt: string;
+  lastLoginAt?: string;
 }
 
 /**
@@ -385,7 +389,9 @@ export interface FirestoreAuditLogDoc {
   id: string;
   userId: string;
   action: string;
+  actionType?: string;
   details: string;
+  description?: string;
   category?: 'security' | 'sync' | 'rule' | 'account' | 'quarantine' | 'user';
   severity?: 'info' | 'warning' | 'critical';
   timestamp: string;

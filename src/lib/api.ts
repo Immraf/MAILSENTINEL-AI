@@ -7,15 +7,31 @@ export interface ApiErrorResponse {
   };
 }
 
+export type UnauthorizedHandler = (message: string) => void;
+let onUnauthorizedHandler: UnauthorizedHandler | null = null;
+
+/**
+ * Register a listener to be called if an authenticated API request remains 401
+ * after force-refreshing the token and retrying once.
+ */
+export function registerUnauthorizedHandler(handler: UnauthorizedHandler | null) {
+  onUnauthorizedHandler = handler;
+}
+
 /**
  * Authenticated API Fetch client
  * Automatically attaches: Authorization: Bearer <Firebase ID token>
- * If 401 is encountered, forces a token refresh via getIdToken(true) and retries once.
+ * If 401 is encountered:
+ * 1. Force refreshes the Firebase ID token.
+ * 2. Retries the request once.
+ * 3. If still unauthorized, signs the user out via registered handler.
+ * 4. Prevents infinite retry loops.
+ * Never logs tokens.
  */
 export async function apiFetch(input: string | URL | Request, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers || {});
 
-  // Retrieve current Firebase ID token
+  // Retrieve current Firebase ID token without forcing refresh first
   const idToken = await getFirebaseIdToken(false);
   if (idToken) {
     headers.set('Authorization', `Bearer ${idToken}`);
@@ -35,7 +51,7 @@ export async function apiFetch(input: string | URL | Request, init: RequestInit 
   if (response.status === 401 && idToken) {
     try {
       const refreshedToken = await getFirebaseIdToken(true);
-      if (refreshedToken && refreshedToken !== idToken) {
+      if (refreshedToken) {
         headers.set('Authorization', `Bearer ${refreshedToken}`);
         response = await fetch(input, {
           ...init,
@@ -43,7 +59,12 @@ export async function apiFetch(input: string | URL | Request, init: RequestInit 
         });
       }
     } catch (refreshErr) {
-      console.warn('Firebase ID token refresh failed:', refreshErr);
+      console.warn('Firebase ID token refresh failed');
+    }
+
+    // 3. If still unauthorized after the single retry, trigger user notification & signout
+    if (response.status === 401 && onUnauthorizedHandler) {
+      onUnauthorizedHandler('Your session has expired. Please sign in again.');
     }
   }
 

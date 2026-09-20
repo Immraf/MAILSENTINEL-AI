@@ -351,10 +351,10 @@ export const EmailDetailModal: React.FC<EmailDetailModalProps> = ({
           try {
             setIsAddingEvent(true);
             const userCred = await googleSignIn();
-            if (userCred?.accessToken) {
-              await executeCreateCalendarEvent(userCred.accessToken, eventInfo);
+            if (userCred?.user) {
+              showWorkspaceMessage('Google account authenticated. Calendar integration requires dedicated Google Workspace authorization.');
             } else {
-              showWorkspaceMessage('Google sign-in was cancelled or no token was received.');
+              showWorkspaceMessage('Google sign-in was cancelled.');
             }
           } catch (err: any) {
             console.error('Sign-in failed:', err);
@@ -395,8 +395,8 @@ export const EmailDetailModal: React.FC<EmailDetailModalProps> = ({
         onConfirm: async () => {
           try {
             const userCred = await googleSignIn();
-            if (userCred?.accessToken) {
-              handleAddCalendarEvent();
+            if (userCred?.user) {
+              showWorkspaceMessage('Google account authenticated. Calendar integration requires dedicated Google Workspace authorization.');
             }
           } catch (e: any) {
             showWorkspaceMessage(`Sign in failed: ${e.message}`);
@@ -1376,7 +1376,7 @@ ${email.bodySnippet || email.bodyText}
                     <label className="text-xs font-medium text-slate-300">Custom Guidance (Optional):</label>
                     <input
                       type="text"
-                      value={customReplyGuidance}
+                      value={customReplyGuidance || ''}
                       onChange={(e) => setCustomReplyGuidance(e.target.value)}
                       placeholder="e.g. Accept the meeting for Thursday, or decline and offer alternate time..."
                       className="w-full px-3 py-2 text-xs rounded-lg bg-slate-800 border border-slate-700 text-slate-200 placeholder-slate-500 focus:outline-hidden focus:ring-1 focus:ring-cyan-500"
@@ -1386,7 +1386,7 @@ ${email.bodySnippet || email.bodyText}
                   <div className="relative">
                     <textarea
                       rows={10}
-                      value={generatedDraft}
+                      value={generatedDraft || ''}
                       onChange={(e) => setGeneratedDraft(e.target.value)}
                       placeholder="Generating contextual reply draft with Gemini..."
                       className="w-full p-4 text-xs font-mono rounded-xl bg-slate-950 border border-slate-800 text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 leading-relaxed"
