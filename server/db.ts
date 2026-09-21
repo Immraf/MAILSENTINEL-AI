@@ -388,9 +388,8 @@ export const db = {
     });
     saveDatabase();
 
-    if (userId !== 'user-default') {
-      syncToFirestore(() => FirestoreDb.addAccount(userId, account));
-    }
+    // NOTE: In Step 3.5+, FirestoreDb is authoritative for connected email accounts.
+    // Database.json is no longer used or synchronized for account management.
     return account;
   },
 
@@ -401,9 +400,6 @@ export const db = {
     data.emailAccounts[idx] = { ...data.emailAccounts[idx], ...patch };
     saveDatabase();
 
-    if (userId !== 'user-default') {
-      syncToFirestore(() => FirestoreDb.updateAccount(userId, accountId, patch as any));
-    }
     return data.emailAccounts[idx];
   },
 
@@ -416,9 +412,6 @@ export const db = {
     data.emailSyncState = data.emailSyncState.filter((s) => !(s.userId === userId && s.accountId === accountId));
     saveDatabase();
 
-    if (userId !== 'user-default') {
-      syncToFirestore(() => FirestoreDb.deleteAccount(userId, accountId));
-    }
     return data.emailAccounts.length < initialLen;
   },
 

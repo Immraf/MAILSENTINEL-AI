@@ -7,6 +7,10 @@ import path from 'path';
 let firebaseAdminApp: App | null = null;
 let adminFirestore: Firestore | null = null;
 
+export function setAdminFirestore(customFirestore: Firestore | null): void {
+  adminFirestore = customFirestore;
+}
+
 export function getFirebaseAdmin(): App {
   if (firebaseAdminApp) {
     return firebaseAdminApp;

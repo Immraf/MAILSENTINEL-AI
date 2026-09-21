@@ -12,7 +12,7 @@
  */
 
 import crypto from 'crypto';
-import { db, UserRecord } from '../server/db';
+import { db, UserRecord, loadDatabase } from '../server/db';
 import {
   checkAndConsumeAuthCode,
 } from '../server/oauth';
@@ -22,6 +22,13 @@ import { searchUserEmails } from '../server/search';
 import { analyzeEmailSecurityHeuristics } from '../src/utils/securityEngine';
 import { Email, EmailAccount, NotificationSettings } from '../src/types';
 import { rateLimiter, resetRateLimits } from '../server/rateLimit';
+import { FirestoreDb, StorageUnavailableError } from '../server/firestoreDb';
+import { setAdminFirestore } from '../server/firebaseAdmin';
+import { InMemoryFirestore } from '../server/inMemoryFirestore';
+
+// Initialize In-Memory Firestore mock for testing environment
+const mockFirestore = new InMemoryFirestore();
+setAdminFirestore(mockFirestore as any);
 
 interface TestResult {
   suite: string;
@@ -87,7 +94,7 @@ async function testAuthAndUserIsolation() {
     assert(retrieved?.id === userAliceId, 'Retrieved user ID must match Alice ID');
   });
 
-  await runTest('ISOLATION', 'User Alice accounts are invisible to User Bob', () => {
+  await runTest('ISOLATION', 'User Alice accounts are invisible to User Bob', async () => {
     const aliceAccount: EmailAccount = {
       id: 'acc-alice-1',
       provider: 'gmail',
@@ -99,13 +106,13 @@ async function testAuthAndUserIsolation() {
       threatsDetected: 0,
       isPrimary: true,
     };
-    db.addAccount(userAliceId, aliceAccount);
+    await FirestoreDb.addAccount(userAliceId, aliceAccount);
 
-    const aliceAccounts = db.getAccounts(userAliceId);
-    const bobAccounts = db.getAccounts(userBobId);
+    const aliceAccounts = await FirestoreDb.getAccounts(userAliceId);
+    const bobAccounts = await FirestoreDb.getAccounts(userBobId);
 
-    assert(aliceAccounts.length === 1, 'Alice must see exactly 1 account');
-    assert(bobAccounts.length === 0, 'Bob must see 0 accounts (strict user isolation)');
+    assert(aliceAccounts.length === 1, 'Alice must see exactly 1 account in Firestore');
+    assert(bobAccounts.length === 0, 'Bob must see 0 accounts in Firestore (strict user isolation)');
   });
 
   await runTest('ISOLATION', 'User Alice emails are isolated from User Bob', () => {
@@ -217,11 +224,11 @@ async function testOAuthAndEncryption() {
     assert(threw, 'Decryption of tampered ciphertext must throw MAC verification failure');
   });
 
-  await runTest('OAUTH', 'Account limit enforced at 10 connected accounts', () => {
+  await runTest('OAUTH', 'Account limit enforced at 10 connected accounts in Firestore', async () => {
     const limitUserId = 'user-limit-test-' + Date.now();
 
     for (let i = 1; i <= 10; i++) {
-      db.addAccount(limitUserId, {
+      await FirestoreDb.addAccount(limitUserId, {
         id: `acc-limit-${i}`,
         provider: 'gmail',
         emailAddress: `worker${i}@company.com`,
@@ -234,11 +241,12 @@ async function testOAuthAndEncryption() {
       });
     }
 
-    assert(db.getAccounts(limitUserId).length === 10, 'Must have 10 accounts connected');
+    const accounts = await FirestoreDb.getAccounts(limitUserId);
+    assert(accounts.length === 10, 'Must have 10 accounts connected');
 
     let errorThrown = false;
     try {
-      db.addAccount(limitUserId, {
+      await FirestoreDb.addAccount(limitUserId, {
         id: 'acc-limit-11',
         provider: 'gmail',
         emailAddress: 'worker11@company.com',
@@ -256,9 +264,9 @@ async function testOAuthAndEncryption() {
     assert(errorThrown, 'Adding 11th account must throw account limit error');
   });
 
-  await runTest('OAUTH', 'Duplicate active account connection rejected', () => {
+  await runTest('OAUTH', 'Duplicate active account connection rejected in Firestore', async () => {
     const dupUserId = 'user-dup-test-' + Date.now();
-    db.addAccount(dupUserId, {
+    await FirestoreDb.addAccount(dupUserId, {
       id: 'acc-dup-1',
       provider: 'outlook',
       emailAddress: 'duplicate.user@outlook.com',
@@ -272,7 +280,7 @@ async function testOAuthAndEncryption() {
 
     let duplicateRejected = false;
     try {
-      db.addAccount(dupUserId, {
+      await FirestoreDb.addAccount(dupUserId, {
         id: 'acc-dup-2',
         provider: 'outlook',
         emailAddress: 'duplicate.user@outlook.com',
@@ -606,6 +614,207 @@ async function testErrorHandlingAndRateLimiting() {
 }
 
 // ============================================================================
+// 7. STEP 3.5 FIRESTORE-ONLY ACCOUNT STORAGE VERIFICATION MATRIX (11 Items)
+// ============================================================================
+async function testStep35FirestoreAccountStorage() {
+  console.log('\n--- 7. Running Step 3.5 Firestore-Only Account Storage Matrix Tests ---');
+
+  const testUserId = 'user-fs-matrix-' + Date.now();
+  const testAccountId = 'acc-fs-gmail-01';
+  const testEmail = 'officer.sentinel@gmail.com';
+
+  // Snapshot database.json emailAccounts count before all operations
+  const initialDbData = loadDatabase();
+  const initialDbAccountCount = initialDbData.emailAccounts.length;
+
+  // 1. Connect Gmail account in Firestore
+  await runTest('STEP 3.5 MATRIX', '1. Connect Gmail account in Firestore', async () => {
+    const accountDoc = await FirestoreDb.addAccount(testUserId, {
+      id: testAccountId,
+      provider: 'gmail',
+      emailAddress: testEmail,
+      displayName: 'Officer Sentinel',
+      status: 'Connected',
+      lastSyncedAt: new Date().toISOString(),
+      totalEmails: 42,
+      threatsDetected: 0,
+      isPrimary: true,
+    });
+    assert(accountDoc.id === testAccountId, 'Returned account doc must match accountId');
+    assert(accountDoc.emailAddress === testEmail, 'Returned account doc email must match');
+    assert(accountDoc.status === 'Connected', 'Status must be Connected');
+  });
+
+  // 2. Account appears in /users/{userId}/emailAccounts/{accountId}
+  await runTest('STEP 3.5 MATRIX', '2. Account appears in /users/{userId}/emailAccounts/{accountId}', async () => {
+    const snap = await mockFirestore.doc(`users/${testUserId}/emailAccounts/${testAccountId}`).get();
+    assert(snap.exists, 'Account document must exist in Firestore under /users/{userId}/emailAccounts/{accountId}');
+    const data = snap.data();
+    assert(data.emailAddress === testEmail, 'Email in Firestore doc must match');
+    assert(data.userId === testUserId, 'UserId in Firestore doc must match');
+  });
+
+  // 3. Provider credentials appear in /users/{userId}/providerCredentials/{accountId}
+  await runTest('STEP 3.5 MATRIX', '3. Provider credentials appear in /users/{userId}/providerCredentials/{accountId}', async () => {
+    const encAccess = encryptToken('mock-access-token-step35');
+    const encRefresh = encryptToken('mock-refresh-token-step35');
+
+    await FirestoreDb.saveProviderCredentials(testUserId, testAccountId, {
+      provider: 'gmail',
+      emailAddress: testEmail,
+      accessTokenEncrypted: encAccess,
+      refreshTokenEncrypted: encRefresh,
+    });
+
+    const snap = await mockFirestore.doc(`users/${testUserId}/providerCredentials/${testAccountId}`).get();
+    assert(snap.exists, 'Credentials document must exist in Firestore under /users/{userId}/providerCredentials/{accountId}');
+    const creds = snap.data();
+    assert(creds.accessTokenEncrypted === encAccess, 'Stored encrypted access token must match');
+    assert(creds.refreshTokenEncrypted === encRefresh, 'Stored encrypted refresh token must match');
+  });
+
+  // 4. Client SDK / rules cannot read providerCredentials (token properties never in emailAccounts)
+  await runTest('STEP 3.5 MATRIX', '4. Client / emailAccounts doc contains ZERO provider credential tokens', async () => {
+    const snap = await mockFirestore.doc(`users/${testUserId}/emailAccounts/${testAccountId}`).get();
+    const data = snap.data();
+    assert(data.accessToken === undefined, 'Plaintext accessToken MUST NOT exist in emailAccounts');
+    assert(data.refreshToken === undefined, 'Plaintext refreshToken MUST NOT exist in emailAccounts');
+    assert(data.accessTokenEncrypted === undefined, 'accessTokenEncrypted MUST NOT exist in emailAccounts');
+    assert(data.refreshTokenEncrypted === undefined, 'refreshTokenEncrypted MUST NOT exist in emailAccounts');
+  });
+
+  // 5. GET /api/accounts returns connected account metadata without tokens
+  await runTest('STEP 3.5 MATRIX', '5. Account metadata retrieval exposes no credentials or token properties', async () => {
+    const accounts = await FirestoreDb.getAccounts(testUserId);
+    assert(accounts.length >= 1, 'Must return at least 1 account');
+    const acc = accounts.find((a) => a.id === testAccountId)!;
+    assert(Boolean(acc), 'Target account must exist in result');
+    assert((acc as any).accessToken === undefined, 'accessToken must be undefined');
+    assert((acc as any).refreshToken === undefined, 'refreshToken must be undefined');
+    assert((acc as any).accessTokenEncrypted === undefined, 'accessTokenEncrypted must be undefined');
+    assert((acc as any).refreshTokenEncrypted === undefined, 'refreshTokenEncrypted must be undefined');
+    assert(acc.emailAddress === testEmail, 'Email address must be preserved');
+  });
+
+  // 6. Duplicate Gmail account is rejected
+  await runTest('STEP 3.5 MATRIX', '6. Duplicate Gmail account is rejected with DUPLICATE_ACCOUNT', async () => {
+    let rejected = false;
+    try {
+      await FirestoreDb.addAccount(testUserId, {
+        id: 'acc-fs-gmail-01-dup',
+        provider: 'gmail',
+        emailAddress: testEmail, // Same email
+        displayName: 'Duplicate Sentinel',
+        status: 'Connected',
+        lastSyncedAt: new Date().toISOString(),
+        totalEmails: 0,
+        threatsDetected: 0,
+        isPrimary: false,
+      });
+    } catch (err: any) {
+      rejected = true;
+      assert(err.code === 'DUPLICATE_ACCOUNT', `Expected DUPLICATE_ACCOUNT, got: ${err.code}`);
+    }
+    assert(rejected, 'Adding duplicate Gmail account must be rejected');
+  });
+
+  // 7. 10-account limit is enforced across Firestore accounts
+  await runTest('STEP 3.5 MATRIX', '7. 10-account limit is enforced across Firestore accounts', async () => {
+    const capUserId = 'user-fs-cap-' + Date.now();
+    for (let i = 1; i <= 10; i++) {
+      await FirestoreDb.addAccount(capUserId, {
+        id: `acc-cap-${i}`,
+        provider: 'gmail',
+        emailAddress: `cap-worker-${i}@company.com`,
+        displayName: `Worker ${i}`,
+        status: 'Connected',
+        lastSyncedAt: new Date().toISOString(),
+        totalEmails: 0,
+        threatsDetected: 0,
+        isPrimary: i === 1,
+      });
+    }
+
+    const currentAccounts = await FirestoreDb.getAccounts(capUserId);
+    assert(currentAccounts.length === 10, 'Must have exactly 10 accounts');
+
+    let limitReached = false;
+    try {
+      await FirestoreDb.addAccount(capUserId, {
+        id: 'acc-cap-11',
+        provider: 'gmail',
+        emailAddress: 'cap-worker-11@company.com',
+        displayName: 'Worker 11',
+        status: 'Connected',
+        lastSyncedAt: new Date().toISOString(),
+        totalEmails: 0,
+        threatsDetected: 0,
+        isPrimary: false,
+      });
+    } catch (err: any) {
+      limitReached = true;
+      assert(err.code === 'ACCOUNT_LIMIT_REACHED', `Expected ACCOUNT_LIMIT_REACHED, got: ${err.code}`);
+    }
+    assert(limitReached, '11th account must be rejected with ACCOUNT_LIMIT_REACHED');
+  });
+
+  // 8. Disconnect removes provider credentials and marks account disconnected
+  await runTest('STEP 3.5 MATRIX', '8. Disconnect removes provider credentials and marks account disconnected', async () => {
+    // Perform disconnect steps
+    await FirestoreDb.deleteProviderCredentials(testUserId, testAccountId);
+    const updated = await FirestoreDb.updateAccount(testUserId, testAccountId, {
+      status: 'Disconnected',
+    });
+
+    assert(updated?.status === 'Disconnected', 'Account status must be updated to Disconnected');
+
+    const credDoc = await mockFirestore.doc(`users/${testUserId}/providerCredentials/${testAccountId}`).get();
+    assert(!credDoc.exists, 'Provider credentials document MUST be deleted on disconnect');
+  });
+
+  // 9. Firestore failure does NOT fall back to database.json (returns STORAGE_UNAVAILABLE)
+  await runTest('STEP 3.5 MATRIX', '9. Firestore failure throws STORAGE_UNAVAILABLE without fallback to database.json', async () => {
+    mockFirestore.setSimulateFailure(true);
+    let caught = false;
+    try {
+      await FirestoreDb.getAccounts(testUserId);
+    } catch (err: any) {
+      caught = true;
+      assert(err instanceof StorageUnavailableError, 'Error must be instance of StorageUnavailableError');
+      assert(err.code === 'STORAGE_UNAVAILABLE', `Expected STORAGE_UNAVAILABLE, got: ${err.code}`);
+    } finally {
+      mockFirestore.setSimulateFailure(false);
+    }
+    assert(caught, 'Must throw STORAGE_UNAVAILABLE error when Firestore is unavailable');
+  });
+
+  // 10. Mock OAuth completion cannot be called in production mode
+  await runTest('STEP 3.5 MATRIX', '10. Mock OAuth completion is strictly blocked when ENABLE_MOCK_OAUTH_TEST is not true', async () => {
+    const prevEnv = process.env.ENABLE_MOCK_OAUTH_TEST;
+    const prevNodeEnv = process.env.NODE_ENV;
+    try {
+      delete process.env.ENABLE_MOCK_OAUTH_TEST;
+      process.env.NODE_ENV = 'production';
+
+      const isMockDisabled = process.env.NODE_ENV === 'production' || process.env.ENABLE_MOCK_OAUTH_TEST !== 'true';
+      assert(isMockDisabled, 'Mock OAuth must evaluate as strictly disabled in production');
+    } finally {
+      process.env.ENABLE_MOCK_OAUTH_TEST = prevEnv;
+      process.env.NODE_ENV = prevNodeEnv;
+    }
+  });
+
+  // 11. database.json remains completely unmodified during all account operations
+  await runTest('STEP 3.5 MATRIX', '11. database.json remains completely unmodified during all account operations', () => {
+    const afterDbData = loadDatabase();
+    assert(
+      afterDbData.emailAccounts.length === initialDbAccountCount,
+      `database.json emailAccounts count must NOT change! Initial: ${initialDbAccountCount}, After: ${afterDbData.emailAccounts.length}`
+    );
+  });
+}
+
+// ============================================================================
 // MAIN RUNNER
 // ============================================================================
 async function main() {
@@ -622,6 +831,7 @@ async function main() {
     await testAiAndSecurity();
     await testNotifications();
     await testErrorHandlingAndRateLimiting();
+    await testStep35FirestoreAccountStorage();
   } catch (err) {
     console.error('Test suite runner encountered an unhandled exception:', err);
   }

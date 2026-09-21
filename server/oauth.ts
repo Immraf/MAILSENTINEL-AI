@@ -435,14 +435,27 @@ oauthRouter.get('/gmail/callback', async (req, res) => {
     `);
   } catch (err: any) {
     console.error('Fatal error during Gmail OAuth callback:', err);
+    if (err?.code === 'STORAGE_UNAVAILABLE') {
+      return res.redirect(`/?oauth_error=storage_unavailable`);
+    }
     res.redirect(`/?oauth_error=internal_server_error`);
   }
 });
 
 /**
  * Programmatic JSON endpoint for completing OAuth (Used for headless verification and automated tests)
+ * Strictly isolated: Rejected in production unless ENABLE_MOCK_OAUTH_TEST === 'true'
  */
 oauthRouter.post('/gmail/callback-json', async (req, res) => {
+  if (process.env.NODE_ENV === 'production' || process.env.ENABLE_MOCK_OAUTH_TEST !== 'true') {
+    return res.status(403).json({
+      error: {
+        code: 'MOCK_OAUTH_DISABLED',
+        message: 'Mock OAuth endpoints are strictly disabled in production and normal operation.',
+      },
+    });
+  }
+
   const { code, state, mockEmail, mockTokens } = req.body;
 
   if (!code || !state) {
@@ -818,8 +831,18 @@ oauthRouter.get('/outlook/callback', async (req, res) => {
 
 /**
  * Programmatic JSON endpoint for Outlook OAuth completion
+ * Strictly isolated: Rejected in production unless ENABLE_MOCK_OAUTH_TEST === 'true'
  */
 oauthRouter.post('/outlook/callback-json', async (req, res) => {
+  if (process.env.NODE_ENV === 'production' || process.env.ENABLE_MOCK_OAUTH_TEST !== 'true') {
+    return res.status(403).json({
+      error: {
+        code: 'MOCK_OAUTH_DISABLED',
+        message: 'Mock OAuth endpoints are strictly disabled in production and normal operation.',
+      },
+    });
+  }
+
   const { code, state, mockEmail, mockTokens } = req.body;
 
   if (!code || !state) {
@@ -976,6 +999,9 @@ oauthRouter.post('/:id/disconnect', authMiddleware, async (req, res) => {
     });
   } catch (err: any) {
     console.error('Error disconnecting account:', err);
+    if (err?.code === 'STORAGE_UNAVAILABLE') {
+      return res.status(503).json({ error: { code: 'STORAGE_UNAVAILABLE', message: 'MailSentinel storage is temporarily unavailable.' } });
+    }
     res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to disconnect account' } });
   }
 });

@@ -160,22 +160,24 @@ async function startServer() {
   app.use('/api/accounts', oauthRouter);
 
   // ==========================================================================
-  // 4. ACCOUNTS MANAGEMENT (Firestore as source of truth)
+  // 4. ACCOUNTS MANAGEMENT (Firestore authoritative - Step 3.5)
   // ==========================================================================
   app.get('/api/accounts', authMiddleware, async (req, res) => {
     try {
       const user = (req as AuthenticatedRequest).user;
       const uid = user.uid || (user as any).id;
       const userAccounts = await FirestoreDb.getAccounts(uid);
-      // Clean account metadata (tokens are in providerCredentials and never in emailAccounts)
-      const sanitized = userAccounts.map(({ accessTokenEncrypted, refreshTokenEncrypted, ...rest }: any) => rest);
+      // Clean account metadata (tokens are strictly in providerCredentials and never in emailAccounts)
+      const sanitized = userAccounts.map(({ accessToken, refreshToken, accessTokenEncrypted, refreshTokenEncrypted, ...rest }: any) => rest);
       res.json(sanitized);
     } catch (err: any) {
-      console.warn('Fallback serving accounts:', err?.message || err);
-      const user = (req as AuthenticatedRequest).user;
-      const uid = user?.uid || (user as any)?.id || 'user-default';
-      const local = db.getAccounts(uid);
-      res.json(local.map(({ accessTokenEncrypted, refreshTokenEncrypted, ...rest }: any) => rest));
+      console.error('Failed to fetch accounts from Firestore:', err?.message || err);
+      res.status(503).json({
+        error: {
+          code: 'STORAGE_UNAVAILABLE',
+          message: 'MailSentinel storage is temporarily unavailable.',
+        },
+      });
     }
   });
 
@@ -187,18 +189,16 @@ async function startServer() {
       if (!account) {
         return res.status(404).json({ error: { code: 'ACCOUNT_NOT_FOUND', message: 'Account not found.' } });
       }
-      const { accessTokenEncrypted, refreshTokenEncrypted, ...sanitized } = account as any;
+      const { accessToken, refreshToken, accessTokenEncrypted, refreshTokenEncrypted, ...sanitized } = account as any;
       res.json(sanitized);
     } catch (err: any) {
-      console.warn('Fallback serving account by ID:', err?.message || err);
-      const user = (req as AuthenticatedRequest).user;
-      const uid = user?.uid || (user as any)?.id || 'user-default';
-      const account = db.getAccountById(uid, req.params.id);
-      if (!account) {
-        return res.status(404).json({ error: { code: 'ACCOUNT_NOT_FOUND', message: 'Account not found.' } });
-      }
-      const { accessTokenEncrypted, refreshTokenEncrypted, ...sanitized } = account as any;
-      res.json(sanitized);
+      console.error('Failed to fetch account by ID from Firestore:', err?.message || err);
+      res.status(503).json({
+        error: {
+          code: 'STORAGE_UNAVAILABLE',
+          message: 'MailSentinel storage is temporarily unavailable.',
+        },
+      });
     }
   });
 
@@ -252,6 +252,15 @@ async function startServer() {
 
       res.status(201).json(newAccount);
     } catch (err: any) {
+      if (err?.code === 'ACCOUNT_LIMIT_REACHED') {
+        return res.status(400).json({ error: { code: 'ACCOUNT_LIMIT_REACHED', message: err.message } });
+      }
+      if (err?.code === 'DUPLICATE_ACCOUNT') {
+        return res.status(409).json({ error: { code: 'DUPLICATE_ACCOUNT', message: err.message } });
+      }
+      if (err?.code === 'STORAGE_UNAVAILABLE') {
+        return res.status(503).json({ error: { code: 'STORAGE_UNAVAILABLE', message: 'MailSentinel storage is temporarily unavailable.' } });
+      }
       res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to add account' } });
     }
   });
@@ -272,7 +281,7 @@ async function startServer() {
         return res.status(404).json({ error: { code: 'ACCOUNT_NOT_FOUND', message: 'Account not found.' } });
       }
 
-      await FirestoreDb.deleteProviderCredentials(uid, accountId);
+      await FirestoreDb.deleteProviderCredentials(uid, accountId).catch(() => {});
 
       await FirestoreDb.addAuditLog(uid, {
         action: 'OAUTH_DISCONNECT',
@@ -286,6 +295,9 @@ async function startServer() {
       res.json({ success: true });
     } catch (err: any) {
       console.error('Error deleting account:', err);
+      if (err?.code === 'STORAGE_UNAVAILABLE') {
+        return res.status(503).json({ error: { code: 'STORAGE_UNAVAILABLE', message: 'MailSentinel storage is temporarily unavailable.' } });
+      }
       res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to delete account' } });
     }
   });

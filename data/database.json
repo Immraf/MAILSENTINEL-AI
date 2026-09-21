@@ -320,6 +320,14 @@
       "syncedCount": 3,
       "deltaToken": "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=sim-1789467049203",
       "providerHistoryId": "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=sim-1789467049203"
+    },
+    {
+      "accountId": "acc-test-123",
+      "userId": "vrN93nms7hWOmf6wJ4IrnRJRjRm1",
+      "status": "idle",
+      "lastSyncedAt": "2026-09-21T18:34:48.019Z",
+      "progressPercent": 100,
+      "syncedCount": 12
     }
   ],
   "emails": [
@@ -2591,6 +2599,28 @@
     }
   ],
   "auditLogs": [
+    {
+      "id": "log-auth-created-1790015432157",
+      "timestamp": "2026-09-21T18:30:32.157Z",
+      "action": "PROFILE_CREATED",
+      "actionType": "PROFILE_CREATED",
+      "details": "Profile created in Firestore for umarimran274@gmail.com",
+      "description": "Profile created in Firestore for umarimran274@gmail.com",
+      "category": "user",
+      "severity": "info",
+      "userId": "vrN93nms7hWOmf6wJ4IrnRJRjRm1"
+    },
+    {
+      "id": "log-auth-created-1790015045074",
+      "timestamp": "2026-09-21T18:24:05.074Z",
+      "action": "PROFILE_CREATED",
+      "actionType": "PROFILE_CREATED",
+      "details": "Profile created in Firestore for umarimran274@gmail.com",
+      "description": "Profile created in Firestore for umarimran274@gmail.com",
+      "category": "user",
+      "severity": "info",
+      "userId": "vrN93nms7hWOmf6wJ4IrnRJRjRm1"
+    },
     {
       "id": "log-ai-1789643194525",
       "timestamp": "2026-09-17T11:06:34.525Z",
