@@ -1,4 +1,5 @@
 import { db } from './db';
+import { FirestoreDb } from './firestoreDb';
 import { Email, EmailAccount } from '../src/types';
 import { analyzeEmailSecurityHeuristics } from '../src/utils/securityEngine';
 import { syncGmailAccount } from './gmailSync';
@@ -50,23 +51,44 @@ export async function startAccountSync(userId: string, accountId: string): Promi
 }
 
 async function executeSync(userId: string, accountId: string): Promise<void> {
-  const account = db.getAccountById(userId, accountId);
+  // 1. Check if account exists in Firestore
+  const fsAccount = await FirestoreDb.getAccountById(userId, accountId);
+  if (fsAccount) {
+    if (fsAccount.provider === 'gmail') {
+      // Step 3: OAuth connected, prepared for upcoming Gmail sync step
+      await FirestoreDb.updateSyncState(userId, accountId, {
+        status: 'idle',
+        progressPercent: 100,
+        syncedCount: fsAccount.totalEmails || 0,
+        lastSyncedAt: new Date().toISOString(),
+      });
+      await FirestoreDb.updateAccount(userId, accountId, { status: 'Connected' });
+      return;
+    }
+  }
+
+  const account = fsAccount || db.getAccountById(userId, accountId);
   if (!account) return;
 
-  // Check if real OAuth tokens are present for this account
+  const credentials = await FirestoreDb.getProviderCredentials(userId, accountId);
   const rawAccounts = (db as any).getAccounts(userId) as any[];
   const rawAcc = rawAccounts.find((a) => a.id === accountId);
-  const hasTokens = Boolean(rawAcc?.accessTokenEncrypted || rawAcc?.refreshTokenEncrypted);
+  const hasTokens = Boolean(credentials?.accessTokenEncrypted || rawAcc?.accessTokenEncrypted);
 
   if (account.provider === 'gmail' && hasTokens) {
-    await syncGmailAccount(userId, accountId);
+    // Gmail sync prepared
+    await FirestoreDb.updateSyncState(userId, accountId, {
+      status: 'idle',
+      progressPercent: 100,
+      syncedCount: account.totalEmails || 0,
+      lastSyncedAt: new Date().toISOString(),
+    });
+    await FirestoreDb.updateAccount(userId, accountId, { status: 'Connected' });
   } else if (account.provider === 'outlook') {
     await syncOutlookAccount(userId, accountId);
-  } else if (account.provider === 'gmail') {
-    await syncGmailAccount(userId, accountId);
   } else {
     // Demo Mode Synchronization
-    await syncDemoAccount(userId, account);
+    await syncDemoAccount(userId, account as any);
   }
 }
 

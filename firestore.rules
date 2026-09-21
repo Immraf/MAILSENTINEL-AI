@@ -55,6 +55,11 @@ service cloud.firestore {
         allow delete: if isOwner(userId);
       }
 
+      // 1b. Server-only Provider Credentials (Admin SDK only, client read/write strictly forbidden)
+      match /providerCredentials/{accountId} {
+        allow read, write: if false;
+      }
+
       // 2. Email sync state (Server-managed only via Firebase Admin SDK)
       match /emailSyncState/{accountId} {
         allow read, list: if isOwner(userId);

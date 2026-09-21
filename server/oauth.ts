@@ -2,22 +2,20 @@ import crypto from 'crypto';
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
-import { db } from './db';
+import { FirestoreDb } from './firestoreDb';
 import { AuthenticatedRequest, authMiddleware } from './auth';
 import { encryptToken } from './encryption';
-import { startAccountSync } from './syncWorker';
 
 export const oauthRouter = express.Router();
 
 /**
  * In-memory registry to detect and neutralize authorization code replay attacks.
- * Tracks consumed codes with timestamp expiration.
+ * Tracks consumed codes with timestamp expiration (15 minutes).
  */
 const consumedAuthCodes = new Map<string, number>();
 
 export function checkAndConsumeAuthCode(code: string): boolean {
   const now = Date.now();
-  // Garbage collect expired codes older than 15 minutes
   for (const [c, ts] of consumedAuthCodes.entries()) {
     if (now - ts > 15 * 60 * 1000) consumedAuthCodes.delete(c);
   }
@@ -26,6 +24,44 @@ export function checkAndConsumeAuthCode(code: string): boolean {
   }
   consumedAuthCodes.set(code, now);
   return true;
+}
+
+/**
+ * Server-side secure OAuth state storage
+ * - Cryptographically random
+ * - Short-lived (10-minute TTL)
+ * - Single-use (deleted on consumption)
+ * - Tied to authenticated Firebase UID
+ * - Tied to provider ('gmail' | 'outlook')
+ */
+export interface OAuthStateRecord {
+  state: string;
+  userId: string;
+  provider: 'gmail' | 'outlook';
+  createdAt: number;
+  expiresAt: number;
+  redirectUri: string;
+}
+
+const oauthStates = new Map<string, OAuthStateRecord>();
+
+export function saveOAuthState(record: OAuthStateRecord): void {
+  const now = Date.now();
+  for (const [s, r] of oauthStates.entries()) {
+    if (now > r.expiresAt) oauthStates.delete(s);
+  }
+  oauthStates.set(record.state, record);
+}
+
+export function consumeOAuthState(state: string): OAuthStateRecord | null {
+  const now = Date.now();
+  const record = oauthStates.get(state);
+  if (!record) return null;
+  oauthStates.delete(state); // Single-use!
+  if (now > record.expiresAt) {
+    return null; // Expired
+  }
+  return record;
 }
 
 /**
@@ -43,6 +79,22 @@ export function getGoogleClientId(): string {
     // Ignore error
   }
   return '';
+}
+
+/**
+ * Resolves Google OAuth Client Secret strictly from process.env
+ */
+export function getGoogleClientSecret(): string {
+  return process.env.GOOGLE_CLIENT_SECRET || '';
+}
+
+/**
+ * Resolves Google OAuth Redirect URI
+ */
+export function getGoogleRedirectUri(req?: express.Request): string {
+  if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI;
+  const appUrl = process.env.APP_URL || (req ? `${req.protocol}://${req.get('host')}` : '');
+  return appUrl ? `${appUrl.replace(/\/$/, '')}/api/accounts/gmail/callback` : '';
 }
 
 /**
@@ -65,7 +117,7 @@ export function getMicrosoftTenantId(): string {
  */
 oauthRouter.get('/config-status', (req, res) => {
   const clientId = getGoogleClientId();
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const clientSecret = getGoogleClientSecret();
   const googleConfigured = Boolean(clientId && clientSecret);
 
   const msClientId = getMicrosoftClientId();
@@ -78,7 +130,7 @@ oauthRouter.get('/config-status', (req, res) => {
     gmail: {
       configured: googleConfigured,
       clientId: clientId ? `${clientId.substring(0, 12)}...` : undefined,
-      mode: googleConfigured ? 'production_oauth' : 'configured_client_id',
+      mode: googleConfigured ? 'production_oauth' : 'unconfigured',
       requiredVars: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'],
       scopes: ['https://www.googleapis.com/auth/gmail.readonly'],
     },
@@ -99,86 +151,96 @@ oauthRouter.get('/config-status', (req, res) => {
 });
 
 // ============================================================================
-// 1. GMAIL OAUTH 2.0 FLOW
+// 1. GMAIL OAUTH 2.0 FLOW (Real Google OAuth, Firestore as Source of Truth)
 // ============================================================================
 
 /**
  * Initiates Gmail OAuth 2.0 flow:
- * 1. Checks account limit (maximum 10 accounts per user)
+ * 1. Checks account limit in Firestore (maximum 10 accounts per user)
  * 2. Generates secure random state with CSRF protection and 10-minute TTL
- * 3. Enforces minimum scope: https://www.googleapis.com/auth/gmail.readonly
+ * 3. Enforces read-only minimum scope: https://www.googleapis.com/auth/gmail.readonly email profile
  * 4. Returns authorization URL
  */
-oauthRouter.post('/gmail/connect', authMiddleware, (req, res) => {
-  const user = (req as AuthenticatedRequest).user;
-  const clientId = getGoogleClientId();
-  const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${appUrl}/api/accounts/gmail/callback`;
+oauthRouter.post('/gmail/connect', authMiddleware, async (req, res) => {
+  try {
+    const user = (req as AuthenticatedRequest).user;
+    const uid = user.uid || (user as any).id;
+    const clientId = getGoogleClientId();
+    const clientSecret = getGoogleClientSecret();
+    const redirectUri = getGoogleRedirectUri(req);
 
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
-    return res.status(400).json({
-      error: {
-        code: 'GMAIL_NOT_CONFIGURED',
-        message: 'Gmail connection is not configured.',
-      },
-      configured: false,
+    if (!clientId || !clientSecret) {
+      return res.status(400).json({
+        error: {
+          code: 'GMAIL_NOT_CONFIGURED',
+          message: 'Gmail connection is not configured.',
+        },
+        configured: false,
+      });
+    }
+
+    // 1. Check account limit (max 10) in Firestore
+    const currentAccounts = await FirestoreDb.getAccounts(uid);
+    if (currentAccounts.length >= 10) {
+      return res.status(400).json({
+        error: {
+          code: 'ACCOUNT_LIMIT_REACHED',
+          message: 'Account limit reached. Maximum 10 connected email accounts permitted.',
+        },
+      });
+    }
+
+    // 2. Generate cryptographically secure state with CSRF validation (10 min TTL)
+    const state = crypto.randomBytes(32).toString('hex');
+    saveOAuthState({
+      state,
+      userId: uid,
+      provider: 'gmail',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 10 * 60 * 1000,
+      redirectUri,
     });
-  }
 
-  // 1. Check account limit (max 10)
-  const currentAccounts = db.getAccounts(user.id);
-  if (currentAccounts.length >= 10) {
-    return res.status(400).json({
-      error: {
-        code: 'ACCOUNT_LIMIT_REACHED',
-        message: 'Account limit reached. Maximum 10 connected email accounts permitted.',
-      },
+    // 3. Minimum required scopes only (Read-only, no send, no manage, no delete)
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: 'https://www.googleapis.com/auth/gmail.readonly email profile',
+      access_type: 'offline',
+      prompt: 'consent',
+      state,
     });
+
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+
+    res.json({
+      configured: true,
+      authUrl,
+      state,
+      scopes: ['https://www.googleapis.com/auth/gmail.readonly'],
+    });
+  } catch (err: any) {
+    console.error('Error starting Gmail OAuth flow:', err);
+    res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to start Gmail OAuth' } });
   }
-
-  // 2. Generate cryptographically secure state with CSRF validation
-  const state = crypto.randomBytes(32).toString('hex');
-  db.saveOAuthState({
-    state,
-    userId: user.id,
-    provider: 'gmail',
-    createdAt: Date.now(),
-    expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes TTL
-    redirectUri,
-  });
-
-  // 3. Minimum required scopes only (no send, no calendar, no drive, no contacts)
-  const params = new URLSearchParams({
-    client_id: clientId || 'pending_credentials',
-    redirect_uri: redirectUri,
-    response_type: 'code',
-    scope: 'https://www.googleapis.com/auth/gmail.readonly email profile',
-    access_type: 'offline',
-    prompt: 'consent',
-    state,
-  });
-
-  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-
-  res.json({
-    configured: Boolean(clientId),
-    authUrl,
-    state,
-    scopes: ['https://www.googleapis.com/auth/gmail.readonly'],
-  });
 });
 
 /**
- * Handles Google OAuth 2.0 Callback (Browser Redirect):
- * Validates state, protects against replay, exchanges code, encrypts tokens,
- * creates account with status 'Connected', and launches background sync.
+ * Handles Google OAuth 2.0 Callback (Browser Redirect / Popup):
+ * 1. Validates state, protects against replay
+ * 2. Exchanges code with Google token endpoint
+ * 3. Enforces 10 connected accounts limit
+ * 4. AES-256-GCM encrypts tokens and stores in server-only collection /users/{userId}/providerCredentials/{accountId}
+ * 5. Saves sanitized account metadata in /users/{userId}/emailAccounts/{accountId} with status 'Connected'
+ * 6. Records audit event
+ * 7. Prepares sync state in 'idle' mode (Gmail sync not implemented yet)
  */
 oauthRouter.get('/gmail/callback', async (req, res) => {
   const { code, state, error } = req.query;
 
   if (error) {
-    console.error('Google OAuth callback error:', error);
+    console.error('Google OAuth callback error returned by provider:', error);
     return res.redirect(`/?oauth_error=${encodeURIComponent(String(error))}`);
   }
 
@@ -189,7 +251,7 @@ oauthRouter.get('/gmail/callback', async (req, res) => {
   }
 
   // 1. Validate state & CSRF protection
-  const oauthRecord = db.consumeOAuthState(String(state));
+  const oauthRecord = consumeOAuthState(String(state));
   if (!oauthRecord || oauthRecord.provider !== 'gmail') {
     return res.status(403).json({
       error: { code: 'INVALID_STATE', message: 'Invalid or expired OAuth state token.' },
@@ -207,15 +269,10 @@ oauthRouter.get('/gmail/callback', async (req, res) => {
   }
 
   const clientId = getGoogleClientId();
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const clientSecret = getGoogleClientSecret();
   const redirectUri = oauthRecord.redirectUri;
 
   try {
-    let accessToken: string;
-    let refreshToken: string;
-    let emailAddress: string;
-    let messagesTotal = 0;
-
     // Verify real Google OAuth credentials are configured
     if (!clientSecret || !clientId) {
       console.error('Gmail OAuth exchange attempted but credentials are not configured');
@@ -224,6 +281,7 @@ oauthRouter.get('/gmail/callback', async (req, res) => {
       );
     }
 
+    // Exchange authorization code for tokens
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -238,13 +296,17 @@ oauthRouter.get('/gmail/callback', async (req, res) => {
 
     if (!tokenRes.ok) {
       const errBody = await tokenRes.text();
-      console.error('Google token exchange error:', errBody);
+      console.error('Google token exchange error response:', errBody);
       return res.redirect(`/?oauth_error=token_exchange_failed`);
     }
 
     const tokenData = await tokenRes.json();
-    accessToken = tokenData.access_token;
-    refreshToken = tokenData.refresh_token;
+    const accessToken = tokenData.access_token;
+    const refreshToken = tokenData.refresh_token;
+
+    if (!accessToken) {
+      return res.redirect(`/?oauth_error=missing_access_token`);
+    }
 
     // Fetch user profile from Gmail API
     const profileRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
@@ -252,17 +314,23 @@ oauthRouter.get('/gmail/callback', async (req, res) => {
     });
 
     if (!profileRes.ok) {
+      const profErr = await profileRes.text();
+      console.error('Failed to fetch Gmail user profile:', profErr);
       return res.redirect(`/?oauth_error=profile_fetch_failed`);
     }
 
     const profileData = await profileRes.json();
-    emailAddress = profileData.emailAddress;
-    messagesTotal = profileData.messagesTotal || 0;
+    const emailAddress = (profileData.emailAddress || '').trim().toLowerCase();
+    const messagesTotal = profileData.messagesTotal || 0;
 
-    // 3. Enforce account limit (max 10)
-    const existingAccounts = db.getAccounts(oauthRecord.userId);
+    if (!emailAddress) {
+      return res.redirect(`/?oauth_error=missing_email_address`);
+    }
+
+    // 3. Enforce account limit (max 10) in Firestore
+    const existingAccounts = await FirestoreDb.getAccounts(oauthRecord.userId);
     const existingAcc = existingAccounts.find(
-      (a) => a.provider === 'gmail' && a.emailAddress.toLowerCase() === emailAddress.toLowerCase()
+      (a) => a.provider === 'gmail' && a.emailAddress.toLowerCase() === emailAddress
     );
 
     // 4. Duplicate provider account check
@@ -276,46 +344,79 @@ oauthRouter.get('/gmail/callback', async (req, res) => {
       return res.redirect(`/?oauth_error=account_limit_reached`);
     }
 
-    // 5. Encrypt credentials before storage (AES-256-GCM)
     const accountId = existingAcc ? existingAcc.id : `acc-gmail-${Date.now()}`;
+    const now = new Date().toISOString();
+
+    // 5. Store server-side encrypted credentials in Firestore /users/{userId}/providerCredentials/{accountId}
+    // NEVER stored in emailAccounts and NEVER sent to the client!
+    const accessTokenEncrypted = encryptToken(accessToken);
+    let refreshTokenEncrypted: string | undefined = undefined;
+
+    if (refreshToken) {
+      refreshTokenEncrypted = encryptToken(refreshToken);
+    } else if (existingAcc) {
+      const existingCreds = await FirestoreDb.getProviderCredentials(oauthRecord.userId, accountId);
+      refreshTokenEncrypted = existingCreds?.refreshTokenEncrypted;
+    }
+
+    await FirestoreDb.saveProviderCredentials(oauthRecord.userId, accountId, {
+      provider: 'gmail',
+      emailAddress,
+      accessTokenEncrypted,
+      refreshTokenEncrypted,
+    });
+
+    // 6. Save sanitized account metadata in Firestore /users/{userId}/emailAccounts/{accountId}
+    // TOKENS ARE STRICTLY OMITTED
     const accountRecord = {
       id: accountId,
+      userId: oauthRecord.userId,
       provider: 'gmail' as const,
       emailAddress,
       displayName: emailAddress.split('@')[0],
       status: 'Connected' as const,
-      lastSyncedAt: new Date().toISOString(),
+      lastSyncedAt: now,
       totalEmails: messagesTotal,
-      threatsDetected: 0,
-      accessTokenEncrypted: encryptToken(accessToken),
-      refreshTokenEncrypted: refreshToken ? encryptToken(refreshToken) : (existingAcc as any)?.refreshTokenEncrypted,
+      threatsDetected: existingAcc?.threatsDetected || 0,
+      isPrimary: existingAccounts.length === 0,
+      connectedAt: now,
+      createdAt: existingAcc?.createdAt || now,
+      updatedAt: now,
     };
 
     if (existingAcc) {
-      db.updateAccount(oauthRecord.userId, accountId, accountRecord);
+      await FirestoreDb.updateAccount(oauthRecord.userId, accountId, accountRecord);
     } else {
-      db.addAccount(oauthRecord.userId, accountRecord);
+      await FirestoreDb.addAccount(oauthRecord.userId, accountRecord as any);
     }
 
-    db.addAuditLog(oauthRecord.userId, {
-      id: `log-oauth-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      actionType: 'OAUTH_CONNECT',
-      description: `Connected Gmail account: ${emailAddress} with readonly scope`,
+    // 7. Initialize sync state in 'idle' status (Do NOT trigger email download yet)
+    await FirestoreDb.updateSyncState(oauthRecord.userId, accountId, {
+      status: 'idle',
+      syncedCount: messagesTotal,
+      progressPercent: 100,
+      lastSyncedAt: now,
     });
 
-    // 6. Launch background synchronization
-    startAccountSync(oauthRecord.userId, accountId);
+    // 8. Record audit log
+    await FirestoreDb.addAuditLog(oauthRecord.userId, {
+      action: 'OAUTH_CONNECT',
+      actionType: 'OAUTH_CONNECT',
+      details: `Connected Gmail account: ${emailAddress} with readonly scope`,
+      description: `Connected Gmail account: ${emailAddress} with readonly scope`,
+      category: 'account',
+      severity: 'info',
+    });
 
-    // 7. Return response supporting popup postMessage and full-page redirect
+    // 9. Return response supporting popup postMessage and full-page redirect
     res.send(`
       <!DOCTYPE html>
       <html>
-        <head><title>Authentication Complete</title></head>
+        <head><title>Gmail Connected</title></head>
         <body style="font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
           <div style="text-align:center;padding:24px;">
             <h2 style="margin-bottom:8px;font-size:18px;">Gmail Account Connected</h2>
-            <p style="color:#94a3b8;font-size:14px;">Synchronizing ${emailAddress} with MailSentinel AI...</p>
+            <p style="color:#94a3b8;font-size:14px;">Linked ${emailAddress} to MailSentinel AI.</p>
             <script>
               try {
                 if (window.opener && !window.opener.closed) {
@@ -351,7 +452,7 @@ oauthRouter.post('/gmail/callback-json', async (req, res) => {
   }
 
   // 1. Validate state
-  const oauthRecord = db.consumeOAuthState(String(state));
+  const oauthRecord = consumeOAuthState(String(state));
   if (!oauthRecord || oauthRecord.provider !== 'gmail') {
     return res.status(403).json({
       error: { code: 'INVALID_STATE', message: 'Invalid or expired OAuth state token.' },
@@ -369,14 +470,14 @@ oauthRouter.post('/gmail/callback-json', async (req, res) => {
   }
 
   try {
-    const emailAddress = mockEmail || `test-${Date.now()}@gmail.com`;
+    const emailAddress = (mockEmail || `test-${Date.now()}@gmail.com`).toLowerCase();
     const accessToken = mockTokens?.accessToken || `acc-token-${Date.now()}`;
     const refreshToken = mockTokens?.refreshToken || `ref-token-${Date.now()}`;
 
-    // 3. Enforce account limit (max 10)
-    const existingAccounts = db.getAccounts(oauthRecord.userId);
+    // 3. Enforce account limit (max 10) in Firestore
+    const existingAccounts = await FirestoreDb.getAccounts(oauthRecord.userId);
     const existingAcc = existingAccounts.find(
-      (a) => a.provider === 'gmail' && a.emailAddress.toLowerCase() === emailAddress.toLowerCase()
+      (a) => a.provider === 'gmail' && a.emailAddress.toLowerCase() === emailAddress
     );
 
     // 4. Duplicate account check
@@ -398,48 +499,60 @@ oauthRouter.post('/gmail/callback-json', async (req, res) => {
       });
     }
 
-    // 5. Store AES-256-GCM encrypted tokens
     const accountId = existingAcc ? existingAcc.id : `acc-gmail-${Date.now()}`;
+    const now = new Date().toISOString();
+
+    // 5. Store server-side encrypted tokens in Firestore
+    await FirestoreDb.saveProviderCredentials(oauthRecord.userId, accountId, {
+      provider: 'gmail',
+      emailAddress,
+      accessTokenEncrypted: encryptToken(accessToken),
+      refreshTokenEncrypted: encryptToken(refreshToken),
+    });
+
+    // 6. Save sanitized account metadata in Firestore
     const accountRecord = {
       id: accountId,
+      userId: oauthRecord.userId,
       provider: 'gmail' as const,
       emailAddress,
       displayName: emailAddress.split('@')[0],
       status: 'Connected' as const,
-      lastSyncedAt: new Date().toISOString(),
+      lastSyncedAt: now,
       totalEmails: 0,
       threatsDetected: 0,
-      accessTokenEncrypted: encryptToken(accessToken),
-      refreshTokenEncrypted: encryptToken(refreshToken),
+      isPrimary: existingAccounts.length === 0,
+      connectedAt: now,
+      createdAt: existingAcc?.createdAt || now,
+      updatedAt: now,
     };
 
     if (existingAcc) {
-      db.updateAccount(oauthRecord.userId, accountId, accountRecord);
+      await FirestoreDb.updateAccount(oauthRecord.userId, accountId, accountRecord);
     } else {
-      db.addAccount(oauthRecord.userId, accountRecord);
+      await FirestoreDb.addAccount(oauthRecord.userId, accountRecord as any);
     }
 
-    db.addAuditLog(oauthRecord.userId, {
-      id: `log-oauth-${Date.now()}`,
-      timestamp: new Date().toISOString(),
+    await FirestoreDb.addAuditLog(oauthRecord.userId, {
+      action: 'OAUTH_CONNECT',
       actionType: 'OAUTH_CONNECT',
+      details: `Connected Gmail account: ${emailAddress}`,
       description: `Connected Gmail account: ${emailAddress}`,
+      category: 'account',
+      severity: 'info',
     });
-
-    // 6. Return sanitized account (tokens NEVER sent to client)
-    const { accessTokenEncrypted, refreshTokenEncrypted, ...safeAccount } = accountRecord as any;
 
     res.status(201).json({
       success: true,
-      account: safeAccount,
+      account: accountRecord,
     });
   } catch (err: any) {
-    res.status(500).json({ error: { code: 'SERVER_ERROR', message: err.message } });
+    res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Server error' } });
   }
 });
 
 // ============================================================================
-// 2. MICROSOFT OUTLOOK / MICROSOFT 365 OAUTH 2.0 FLOW (Step 7)
+// 2. MICROSOFT OUTLOOK / MICROSOFT 365 OAUTH 2.0 FLOW
 // ============================================================================
 
 /**
@@ -449,65 +562,65 @@ oauthRouter.post('/gmail/callback-json', async (req, res) => {
  * 3. Enforces read-only minimum required scopes: Mail.Read, User.Read, offline_access (NO Mail.Send)
  * 4. Returns Microsoft Identity Platform authorization URL
  */
-oauthRouter.post('/outlook/connect', authMiddleware, (req, res) => {
-  const user = (req as AuthenticatedRequest).user;
-  const clientId = getMicrosoftClientId();
-  const tenantId = getMicrosoftTenantId();
-  const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
-  const redirectUri = process.env.MICROSOFT_REDIRECT_URI || `${appUrl}/api/accounts/outlook/callback`;
+oauthRouter.post('/outlook/connect', authMiddleware, async (req, res) => {
+  try {
+    const user = (req as AuthenticatedRequest).user;
+    const uid = user.uid || (user as any).id;
+    const clientId = getMicrosoftClientId();
+    const tenantId = getMicrosoftTenantId();
+    const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+    const redirectUri = process.env.MICROSOFT_REDIRECT_URI || `${appUrl}/api/accounts/outlook/callback`;
 
-  // 1. Check account limit across BOTH providers (max 10 total)
-  const currentAccounts = db.getAccounts(user.id);
-  if (currentAccounts.length >= 10) {
-    return res.status(400).json({
-      error: {
-        code: 'ACCOUNT_LIMIT_REACHED',
-        message: 'Account limit reached. Maximum 10 connected email accounts permitted across all providers.',
-      },
+    // 1. Check account limit across BOTH providers in Firestore (max 10 total)
+    const currentAccounts = await FirestoreDb.getAccounts(uid);
+    if (currentAccounts.length >= 10) {
+      return res.status(400).json({
+        error: {
+          code: 'ACCOUNT_LIMIT_REACHED',
+          message: 'Account limit reached. Maximum 10 connected email accounts permitted across all providers.',
+        },
+      });
+    }
+
+    // 2. Generate secure state with CSRF protection and 10-minute TTL
+    const state = crypto.randomBytes(32).toString('hex');
+    saveOAuthState({
+      state,
+      userId: uid,
+      provider: 'outlook',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 10 * 60 * 1000,
+      redirectUri,
     });
+
+    // 3. Microsoft Identity Platform v2.0 parameters
+    // Start with Mail.Read (and standard User.Read for profile + offline_access for tokens).
+    // Strictly DO NOT request Mail.Send!
+    const params = new URLSearchParams({
+      client_id: clientId || 'pending_credentials',
+      response_type: 'code',
+      redirect_uri: redirectUri,
+      response_mode: 'query',
+      scope: 'Mail.Read User.Read offline_access',
+      state,
+      prompt: 'select_account',
+    });
+
+    const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${params.toString()}`;
+
+    res.json({
+      configured: Boolean(clientId),
+      authUrl,
+      state,
+      scopes: ['Mail.Read', 'User.Read', 'offline_access'],
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to start Outlook OAuth' } });
   }
-
-  // 2. Generate secure state with CSRF protection and 10-minute TTL
-  const state = crypto.randomBytes(32).toString('hex');
-  db.saveOAuthState({
-    state,
-    userId: user.id,
-    provider: 'outlook',
-    createdAt: Date.now(),
-    expiresAt: Date.now() + 10 * 60 * 1000,
-    redirectUri,
-  });
-
-  // 3. Microsoft Identity Platform v2.0 parameters
-  // Start with Mail.Read (and standard User.Read for profile + offline_access for tokens).
-  // Strictly DO NOT request Mail.Send!
-  const params = new URLSearchParams({
-    client_id: clientId || 'pending_credentials',
-    response_type: 'code',
-    redirect_uri: redirectUri,
-    response_mode: 'query',
-    scope: 'Mail.Read User.Read offline_access',
-    state,
-    prompt: 'select_account',
-  });
-
-  const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${params.toString()}`;
-
-  res.json({
-    configured: Boolean(clientId),
-    authUrl,
-    state,
-    scopes: ['Mail.Read', 'User.Read', 'offline_access'],
-  });
 });
 
 /**
- * Handles Microsoft OAuth 2.0 Callback (Browser Redirect / Popup):
- * 1. Validates state, protects against replay
- * 2. Exchanges code for Microsoft Graph tokens
- * 3. Enforces 10 connected accounts limit across BOTH providers
- * 4. AES-256-GCM encrypts tokens and persists account
- * 5. Launches background synchronization via Microsoft Graph delta engine
+ * Handles Microsoft OAuth 2.0 Callback (Browser Redirect / Popup)
  */
 oauthRouter.get('/outlook/callback', async (req, res) => {
   const { code, state, error, error_description } = req.query;
@@ -537,7 +650,7 @@ oauthRouter.get('/outlook/callback', async (req, res) => {
   }
 
   // 1. Validate state & CSRF protection
-  const oauthRecord = db.consumeOAuthState(String(state));
+  const oauthRecord = consumeOAuthState(String(state));
   if (!oauthRecord || oauthRecord.provider !== 'outlook') {
     return res.status(403).json({
       error: { code: 'INVALID_STATE', message: 'Invalid or expired OAuth state token.' },
@@ -566,7 +679,6 @@ oauthRouter.get('/outlook/callback', async (req, res) => {
     let displayName: string;
 
     if (clientId && clientSecret) {
-      // Real Microsoft Identity Platform token exchange
       const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
       const tokenRes = await fetch(tokenUrl, {
         method: 'POST',
@@ -604,15 +716,14 @@ oauthRouter.get('/outlook/callback', async (req, res) => {
       emailAddress = (profileData.mail || profileData.userPrincipalName || '').toLowerCase();
       displayName = profileData.displayName || emailAddress.split('@')[0] || 'Outlook User';
     } else {
-      // Local dev / test harness fallback
       accessToken = `mock-outlook-access-token-${Date.now()}`;
       refreshToken = `mock-outlook-refresh-token-${Date.now()}`;
       emailAddress = `user-${Date.now()}@outlook.com`;
       displayName = 'Outlook User';
     }
 
-    // 3. Enforce maximum 10 accounts across BOTH providers
-    const existingAccounts = db.getAccounts(oauthRecord.userId);
+    // 3. Enforce maximum 10 accounts in Firestore across BOTH providers
+    const existingAccounts = await FirestoreDb.getAccounts(oauthRecord.userId);
     const existingAcc = existingAccounts.find(
       (a) => a.provider === 'outlook' && a.emailAddress.toLowerCase() === emailAddress.toLowerCase()
     );
@@ -625,46 +736,64 @@ oauthRouter.get('/outlook/callback', async (req, res) => {
       return res.redirect('/?oauth_error=account_limit_reached');
     }
 
-    // 4. Encrypt credentials before storage (AES-256-GCM)
     const accountId = existingAcc ? existingAcc.id : `acc-outlook-${Date.now()}`;
+    const now = new Date().toISOString();
+
+    // 4. Save server-side encrypted tokens in Firestore
+    await FirestoreDb.saveProviderCredentials(oauthRecord.userId, accountId, {
+      provider: 'outlook',
+      emailAddress,
+      accessTokenEncrypted: encryptToken(accessToken),
+      refreshTokenEncrypted: refreshToken ? encryptToken(refreshToken) : undefined,
+    });
+
+    // 5. Save sanitized account metadata in Firestore
     const accountRecord = {
       id: accountId,
+      userId: oauthRecord.userId,
       provider: 'outlook' as const,
       emailAddress,
       displayName,
       status: 'Connected' as const,
-      lastSyncedAt: new Date().toISOString(),
+      lastSyncedAt: now,
       totalEmails: 0,
       threatsDetected: 0,
-      accessTokenEncrypted: encryptToken(accessToken),
-      refreshTokenEncrypted: refreshToken ? encryptToken(refreshToken) : (existingAcc as any)?.refreshTokenEncrypted,
+      isPrimary: existingAccounts.length === 0,
+      connectedAt: now,
+      createdAt: existingAcc?.createdAt || now,
+      updatedAt: now,
     };
 
     if (existingAcc) {
-      db.updateAccount(oauthRecord.userId, accountId, accountRecord);
+      await FirestoreDb.updateAccount(oauthRecord.userId, accountId, accountRecord);
     } else {
-      db.addAccount(oauthRecord.userId, accountRecord);
+      await FirestoreDb.addAccount(oauthRecord.userId, accountRecord as any);
     }
 
-    db.addAuditLog(oauthRecord.userId, {
-      id: `log-oauth-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      actionType: 'OAUTH_CONNECT',
-      description: `Connected Outlook account: ${emailAddress} with Mail.Read scope`,
+    await FirestoreDb.updateSyncState(oauthRecord.userId, accountId, {
+      status: 'idle',
+      syncedCount: 0,
+      progressPercent: 100,
+      lastSyncedAt: now,
     });
 
-    // 5. Launch background synchronization via Microsoft Graph delta engine
-    startAccountSync(oauthRecord.userId, accountId);
+    await FirestoreDb.addAuditLog(oauthRecord.userId, {
+      action: 'OAUTH_CONNECT',
+      actionType: 'OAUTH_CONNECT',
+      details: `Connected Outlook account: ${emailAddress} with Mail.Read scope`,
+      description: `Connected Outlook account: ${emailAddress} with Mail.Read scope`,
+      category: 'account',
+      severity: 'info',
+    });
 
-    // 6. Return response supporting popup postMessage and full-page redirect
     res.send(`
       <!DOCTYPE html>
       <html>
-        <head><title>Authentication Complete</title></head>
+        <head><title>Outlook Connected</title></head>
         <body style="font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
           <div style="text-align:center;padding:24px;">
             <h2 style="margin-bottom:8px;font-size:18px;">Outlook Account Connected</h2>
-            <p style="color:#94a3b8;font-size:14px;">Synchronizing ${emailAddress} with MailSentinel AI...</p>
+            <p style="color:#94a3b8;font-size:14px;">Linked ${emailAddress} to MailSentinel AI.</p>
             <script>
               try {
                 if (window.opener && !window.opener.closed) {
@@ -688,7 +817,7 @@ oauthRouter.get('/outlook/callback', async (req, res) => {
 });
 
 /**
- * Programmatic JSON endpoint for Outlook OAuth completion (Used for headless verification and test suites)
+ * Programmatic JSON endpoint for Outlook OAuth completion
  */
 oauthRouter.post('/outlook/callback-json', async (req, res) => {
   const { code, state, mockEmail, mockTokens } = req.body;
@@ -699,15 +828,13 @@ oauthRouter.post('/outlook/callback-json', async (req, res) => {
     });
   }
 
-  // 1. Validate state
-  const oauthRecord = db.consumeOAuthState(String(state));
+  const oauthRecord = consumeOAuthState(String(state));
   if (!oauthRecord || oauthRecord.provider !== 'outlook') {
     return res.status(403).json({
       error: { code: 'INVALID_STATE', message: 'Invalid or expired OAuth state token.' },
     });
   }
 
-  // 2. Protect against authorization code replay
   if (!checkAndConsumeAuthCode(String(code))) {
     return res.status(400).json({
       error: {
@@ -718,14 +845,13 @@ oauthRouter.post('/outlook/callback-json', async (req, res) => {
   }
 
   try {
-    const emailAddress = mockEmail || `user-${Date.now()}@outlook.com`;
+    const emailAddress = (mockEmail || `user-${Date.now()}@outlook.com`).toLowerCase();
     const accessToken = mockTokens?.accessToken || `mock-outlook-acc-${Date.now()}`;
     const refreshToken = mockTokens?.refreshToken || `mock-outlook-ref-${Date.now()}`;
 
-    // 3. Enforce maximum 10 accounts across BOTH providers
-    const existingAccounts = db.getAccounts(oauthRecord.userId);
+    const existingAccounts = await FirestoreDb.getAccounts(oauthRecord.userId);
     const existingAcc = existingAccounts.find(
-      (a) => a.provider === 'outlook' && a.emailAddress.toLowerCase() === emailAddress.toLowerCase()
+      (a) => a.provider === 'outlook' && a.emailAddress.toLowerCase() === emailAddress
     );
 
     if (existingAcc && (existingAcc.status === 'Connected' || existingAcc.status === 'Syncing')) {
@@ -746,46 +872,53 @@ oauthRouter.post('/outlook/callback-json', async (req, res) => {
       });
     }
 
-    // 4. Store AES-256-GCM encrypted tokens
     const accountId = existingAcc ? existingAcc.id : `acc-outlook-${Date.now()}`;
+    const now = new Date().toISOString();
+
+    await FirestoreDb.saveProviderCredentials(oauthRecord.userId, accountId, {
+      provider: 'outlook',
+      emailAddress,
+      accessTokenEncrypted: encryptToken(accessToken),
+      refreshTokenEncrypted: encryptToken(refreshToken),
+    });
+
     const accountRecord = {
       id: accountId,
+      userId: oauthRecord.userId,
       provider: 'outlook' as const,
       emailAddress,
       displayName: emailAddress.split('@')[0],
       status: 'Connected' as const,
-      lastSyncedAt: new Date().toISOString(),
+      lastSyncedAt: now,
       totalEmails: 0,
       threatsDetected: 0,
-      accessTokenEncrypted: encryptToken(accessToken),
-      refreshTokenEncrypted: encryptToken(refreshToken),
+      isPrimary: existingAccounts.length === 0,
+      connectedAt: now,
+      createdAt: existingAcc?.createdAt || now,
+      updatedAt: now,
     };
 
     if (existingAcc) {
-      db.updateAccount(oauthRecord.userId, accountId, accountRecord);
+      await FirestoreDb.updateAccount(oauthRecord.userId, accountId, accountRecord);
     } else {
-      db.addAccount(oauthRecord.userId, accountRecord);
+      await FirestoreDb.addAccount(oauthRecord.userId, accountRecord as any);
     }
 
-    db.addAuditLog(oauthRecord.userId, {
-      id: `log-oauth-${Date.now()}`,
-      timestamp: new Date().toISOString(),
+    await FirestoreDb.addAuditLog(oauthRecord.userId, {
+      action: 'OAUTH_CONNECT',
       actionType: 'OAUTH_CONNECT',
-      description: `Connected Outlook account: ${emailAddress} with Mail.Read scope`,
+      details: `Connected Outlook account: ${emailAddress}`,
+      description: `Connected Outlook account: ${emailAddress}`,
+      category: 'account',
+      severity: 'info',
     });
-
-    // 5. Trigger background sync
-    startAccountSync(oauthRecord.userId, accountId);
-
-    // 6. Return sanitized account (tokens NEVER sent to client)
-    const { accessTokenEncrypted, refreshTokenEncrypted, ...safeAccount } = accountRecord as any;
 
     res.status(201).json({
       success: true,
-      account: safeAccount,
+      account: accountRecord,
     });
   } catch (err: any) {
-    res.status(500).json({ error: { code: 'SERVER_ERROR', message: err.message } });
+    res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Server error' } });
   }
 });
 
@@ -794,82 +927,131 @@ oauthRouter.post('/outlook/callback-json', async (req, res) => {
 // ============================================================================
 
 /**
- * Disconnects an account: updates status to 'Disconnected' and scrubs encrypted credentials
+ * Disconnects an account:
+ * - Verifies ownership via authenticated Firebase UID
+ * - Removes server-side provider credentials from Firestore
+ * - Updates status to 'Disconnected' in Firestore
+ * - Records audit event
+ * - Strictly does NOT return credentials to client
  */
-oauthRouter.post('/:id/disconnect', authMiddleware, (req, res) => {
-  const user = (req as AuthenticatedRequest).user;
-  const accountId = req.params.id;
+oauthRouter.post('/:id/disconnect', authMiddleware, async (req, res) => {
+  try {
+    const user = (req as AuthenticatedRequest).user;
+    const uid = user.uid || (user as any).id;
+    const accountId = req.params.id;
 
-  const account = db.getAccountById(user.id, accountId);
-  if (!account) {
-    return res.status(404).json({ error: { code: 'ACCOUNT_NOT_FOUND', message: 'Account not found.' } });
+    const account = await FirestoreDb.getAccountById(uid, accountId);
+    if (!account) {
+      return res.status(404).json({ error: { code: 'ACCOUNT_NOT_FOUND', message: 'Account not found.' } });
+    }
+
+    // 1. Delete server-side provider credentials from Firestore
+    await FirestoreDb.deleteProviderCredentials(uid, accountId);
+
+    // 2. Transition state to 'Disconnected' in Firestore
+    const updated = await FirestoreDb.updateAccount(uid, accountId, {
+      status: 'Disconnected',
+    });
+
+    // 3. Update sync state
+    await FirestoreDb.updateSyncState(uid, accountId, {
+      status: 'idle',
+      progressPercent: 0,
+      errorMessage: 'Account disconnected',
+    });
+
+    // 4. Record audit log
+    await FirestoreDb.addAuditLog(uid, {
+      action: 'OAUTH_DISCONNECT',
+      actionType: 'OAUTH_DISCONNECT',
+      details: `Disconnected account: ${account.emailAddress}`,
+      description: `Disconnected account: ${account.emailAddress}`,
+      category: 'account',
+      severity: 'info',
+    });
+
+    res.json({
+      success: true,
+      account: updated,
+    });
+  } catch (err: any) {
+    console.error('Error disconnecting account:', err);
+    res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to disconnect account' } });
   }
-
-  // Transition state to 'Disconnected' and scrub credentials
-  db.updateAccount(user.id, accountId, {
-    status: 'Disconnected',
-    accessTokenEncrypted: undefined,
-    refreshTokenEncrypted: undefined,
-  } as any);
-
-  db.updateSyncState(user.id, accountId, {
-    status: 'idle',
-    progressPercent: 0,
-    errorMessage: 'Account disconnected',
-  });
-
-  db.addAuditLog(user.id, {
-    id: `log-dc-${Date.now()}`,
-    timestamp: new Date().toISOString(),
-    actionType: 'OAUTH_DISCONNECT',
-    description: `Disconnected account: ${account.emailAddress}`,
-  });
-
-  const updatedAccount = db.getAccountById(user.id, accountId);
-  const { accessTokenEncrypted, refreshTokenEncrypted, ...safe } = (updatedAccount as any) || {};
-
-  res.json({
-    success: true,
-    account: safe,
-  });
 });
 
 /**
  * Triggers re-authentication for an account needing credentials renewal
  */
-oauthRouter.post('/:id/reauth', authMiddleware, (req, res) => {
-  const user = (req as AuthenticatedRequest).user;
-  const accountId = req.params.id;
+oauthRouter.post('/:id/reauth', authMiddleware, async (req, res) => {
+  try {
+    const user = (req as AuthenticatedRequest).user;
+    const uid = user.uid || (user as any).id;
+    const accountId = req.params.id;
 
-  const account = db.getAccountById(user.id, accountId);
-  if (!account) {
-    return res.status(404).json({ error: { code: 'ACCOUNT_NOT_FOUND', message: 'Account not found.' } });
-  }
+    const account = await FirestoreDb.getAccountById(uid, accountId);
+    if (!account) {
+      return res.status(404).json({ error: { code: 'ACCOUNT_NOT_FOUND', message: 'Account not found.' } });
+    }
 
-  // Update status to 'Needs Reauthentication'
-  db.updateAccount(user.id, accountId, {
-    status: 'Needs Reauthentication',
-    errorMessage: 'Reauthentication required.',
-  });
+    // Update status to 'Needs Reauthentication'
+    await FirestoreDb.updateAccount(uid, accountId, {
+      status: 'Needs Reauthentication',
+      errorMessage: 'Reauthentication required.',
+    });
 
-  db.updateSyncState(user.id, accountId, {
-    status: 'needs_reauth',
-    errorMessage: 'OAuth token renewal required.',
-  });
+    await FirestoreDb.updateSyncState(uid, accountId, {
+      status: 'needs_reauth',
+      errorMessage: 'OAuth token renewal required.',
+    });
 
-  const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
-  const state = crypto.randomBytes(32).toString('hex');
+    const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+    const state = crypto.randomBytes(32).toString('hex');
 
-  // If Outlook / Microsoft account
-  if (account.provider === 'outlook') {
-    const clientId = getMicrosoftClientId();
-    const tenantId = getMicrosoftTenantId();
-    const redirectUri = process.env.MICROSOFT_REDIRECT_URI || `${appUrl}/api/accounts/outlook/callback`;
+    // If Outlook / Microsoft account
+    if (account.provider === 'outlook') {
+      const clientId = getMicrosoftClientId();
+      const tenantId = getMicrosoftTenantId();
+      const redirectUri = process.env.MICROSOFT_REDIRECT_URI || `${appUrl}/api/accounts/outlook/callback`;
 
-    db.saveOAuthState({
+      saveOAuthState({
+        state,
+        userId: uid,
+        provider: 'outlook',
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 10 * 60 * 1000,
+        redirectUri,
+      });
+
+      const params = new URLSearchParams({
+        client_id: clientId || 'pending_credentials',
+        response_type: 'code',
+        redirect_uri: redirectUri,
+        response_mode: 'query',
+        scope: 'Mail.Read User.Read offline_access',
+        state,
+        prompt: 'consent',
+        login_hint: account.emailAddress,
+      });
+
+      const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${params.toString()}`;
+
+      return res.json({
+        status: 'Needs Reauthentication',
+        provider: 'outlook',
+        authUrl,
+        state,
+      });
+    }
+
+    // If Gmail / Google account
+    const clientId = getGoogleClientId();
+    const redirectUri = getGoogleRedirectUri(req);
+
+    saveOAuthState({
       state,
-      userId: user.id,
-      provider: 'outlook',
+      userId: uid,
+      provider: 'gmail',
       createdAt: Date.now(),
       expiresAt: Date.now() + 10 * 60 * 1000,
       redirectUri,
@@ -877,55 +1059,25 @@ oauthRouter.post('/:id/reauth', authMiddleware, (req, res) => {
 
     const params = new URLSearchParams({
       client_id: clientId || 'pending_credentials',
-      response_type: 'code',
       redirect_uri: redirectUri,
-      response_mode: 'query',
-      scope: 'Mail.Read User.Read offline_access',
-      state,
+      response_type: 'code',
+      scope: 'https://www.googleapis.com/auth/gmail.readonly email profile',
+      access_type: 'offline',
       prompt: 'consent',
       login_hint: account.emailAddress,
+      state,
     });
 
-    const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${params.toString()}`;
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 
-    return res.json({
+    res.json({
       status: 'Needs Reauthentication',
-      provider: 'outlook',
+      provider: 'gmail',
       authUrl,
       state,
     });
+  } catch (err: any) {
+    console.error('Error reauthenticating account:', err);
+    res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to initiate reauthentication' } });
   }
-
-  // If Gmail / Google account
-  const clientId = getGoogleClientId();
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${appUrl}/api/accounts/gmail/callback`;
-
-  db.saveOAuthState({
-    state,
-    userId: user.id,
-    provider: 'gmail',
-    createdAt: Date.now(),
-    expiresAt: Date.now() + 10 * 60 * 1000,
-    redirectUri,
-  });
-
-  const params = new URLSearchParams({
-    client_id: clientId || 'pending_credentials',
-    redirect_uri: redirectUri,
-    response_type: 'code',
-    scope: 'https://www.googleapis.com/auth/gmail.readonly email profile',
-    access_type: 'offline',
-    prompt: 'consent',
-    login_hint: account.emailAddress,
-    state,
-  });
-
-  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-
-  res.json({
-    status: 'Needs Reauthentication',
-    provider: 'gmail',
-    authUrl,
-    state,
-  });
 });

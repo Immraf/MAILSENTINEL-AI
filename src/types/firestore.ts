@@ -50,6 +50,24 @@ export interface FirestoreEmailAccountDoc {
   isPrimary: boolean;
   unreadCount?: number;
   errorMessage?: string;
+  connectedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * 2b. Server-Only Provider Credentials Document
+ * Path: /users/{userId}/providerCredentials/{accountId}
+ * SERVER-ONLY. Strictly inaccessible to client SDK.
+ */
+export interface FirestoreProviderCredentialDoc {
+  id: string; // accountId
+  accountId: string;
+  userId: string;
+  provider: 'gmail' | 'outlook';
+  emailAddress: string;
+  accessTokenEncrypted: string;
+  refreshTokenEncrypted?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -31,16 +31,25 @@ import {
 import { encryptToken } from './encryption';
 import { FirestoreDb } from './firestoreDb';
 
+let isSyncingToFirestore = false;
+
 /**
  * Background synchronizer for Firestore cloud persistence.
  * For authenticated non-demo users, replicates records to Cloud Firestore.
  */
 function syncToFirestore(fn: () => Promise<any>): void {
-  fn().catch((err) => {
-    if (process.env.DEBUG_FIRESTORE) {
-      console.warn('[Firestore Sync] Non-blocking persistence notice:', err?.message || err);
-    }
-  });
+  if (isSyncingToFirestore) return;
+  isSyncingToFirestore = true;
+  Promise.resolve()
+    .then(() => fn())
+    .catch((err) => {
+      if (process.env.DEBUG_FIRESTORE) {
+        console.warn('[Firestore Sync] Non-blocking persistence notice:', err?.message || err);
+      }
+    })
+    .finally(() => {
+      isSyncingToFirestore = false;
+    });
 }
 
 export interface EmailAnalysisRecord {

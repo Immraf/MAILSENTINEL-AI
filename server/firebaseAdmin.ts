@@ -65,5 +65,6 @@ export function getAdminFirestore(): Firestore {
   }
 
   adminFirestore = databaseId ? getFirestore(app, databaseId) : getFirestore(app);
+  adminFirestore.settings({ ignoreUndefinedProperties: true });
   return adminFirestore;
 }

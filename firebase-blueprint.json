@@ -34,6 +34,23 @@
       },
       "required": ["id", "userId", "provider", "emailAddress", "status"]
     },
+    "ProviderCredential": {
+      "title": "ProviderCredential",
+      "description": "Server-only OAuth credential storage (encrypted tokens, never exposed to client)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "accountId": { "type": "string", "maxLength": 128 },
+        "provider": { "type": "string", "enum": ["gmail", "outlook"], "maxLength": 32 },
+        "emailAddress": { "type": "string", "maxLength": 256 },
+        "accessTokenEncrypted": { "type": "string" },
+        "refreshTokenEncrypted": { "type": "string" },
+        "updatedAt": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "accountId", "provider", "emailAddress", "accessTokenEncrypted"]
+    },
     "EmailSyncState": {
       "title": "EmailSyncState",
       "description": "Account synchronization state (server-managed)",
@@ -357,6 +374,10 @@
     "/users/{userId}/emailAccounts/{accountId}": {
       "schema": "EmailAccount",
       "description": "Connected email accounts"
+    },
+    "/users/{userId}/providerCredentials/{accountId}": {
+      "schema": "ProviderCredential",
+      "description": "Server-only OAuth credentials (AES-256-GCM encrypted, client read/write forbidden)"
     },
     "/users/{userId}/emailSyncState/{accountId}": {
       "schema": "EmailSyncState",
