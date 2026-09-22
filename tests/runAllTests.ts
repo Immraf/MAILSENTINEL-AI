@@ -23,6 +23,7 @@ import { analyzeEmailSecurityHeuristics } from '../src/utils/securityEngine';
 import { Email, EmailAccount, NotificationSettings } from '../src/types';
 import { rateLimiter, resetRateLimits } from '../server/rateLimit';
 import { FirestoreDb, StorageUnavailableError } from '../server/firestoreDb';
+import { fetchAndPersistGmailMessage } from '../server/gmailSync';
 import { setAdminFirestore } from '../server/firebaseAdmin';
 import { InMemoryFirestore } from '../server/inMemoryFirestore';
 
@@ -815,6 +816,143 @@ async function testStep35FirestoreAccountStorage() {
 }
 
 // ============================================================================
+// 8. STEP 4 GMAIL SYNCHRONIZATION & FIRESTORE STORAGE VERIFICATION
+// ============================================================================
+async function testStep4GmailSyncAndFirestoreStorage() {
+  console.log('\n--- 8. Running Step 4 Gmail Sync & Firestore Storage Tests ---');
+
+  const testUserId = 'user-step4-' + Date.now();
+  const testAccountId = 'acc-step4-gmail-01';
+
+  // Snapshot database.json email count
+  const initialDbData = loadDatabase();
+  const initialDbEmailsCount = initialDbData.emails.length;
+
+  // 1. Account setup in Firestore
+  await runTest('STEP 4 SYNC', '1. Setup connected Gmail account in Firestore', async () => {
+    await FirestoreDb.addAccount(testUserId, {
+      id: testAccountId,
+      provider: 'gmail',
+      emailAddress: 'officer.step4@gmail.com',
+      displayName: 'Officer Step 4',
+      status: 'Connected',
+      lastSyncedAt: new Date().toISOString(),
+      totalEmails: 0,
+      threatsDetected: 0,
+      isPrimary: true,
+    });
+
+    const encAccess = encryptToken('test-access-token');
+    const encRefresh = encryptToken('test-refresh-token');
+    await FirestoreDb.saveProviderCredentials(testUserId, testAccountId, {
+      provider: 'gmail',
+      emailAddress: 'officer.step4@gmail.com',
+      accessTokenEncrypted: encAccess,
+      refreshTokenEncrypted: encRefresh,
+    });
+
+    const acc = await FirestoreDb.getAccountById(testUserId, testAccountId);
+    assert(acc !== null, 'Account must exist in Firestore');
+  });
+
+  // 2. Normalized Email persistence in account-scoped subcollection
+  await runTest('STEP 4 SYNC', '2. Persist NormalizedEmail in account-scoped subcollection', async () => {
+    const rawMsg = {
+      id: 'step4-msg-101',
+      threadId: 'step4-thread-201',
+      snippet: 'Welcome to MailSentinel Step 4 sync',
+      historyId: '12345678',
+      internalDate: String(Date.now()),
+      payload: {
+        headers: [
+          { name: 'From', value: 'Security Team <security@defense.gov>' },
+          { name: 'To', value: 'officer.step4@gmail.com' },
+          { name: 'Subject', value: 'Weekly Intelligence Briefing' },
+          { name: 'Date', value: new Date().toUTCString() },
+        ],
+        body: { data: Buffer.from('Briefing contents: All systems operational.').toString('base64') },
+        parts: [],
+      },
+    };
+
+    const account = (await FirestoreDb.getAccountById(testUserId, testAccountId))!;
+    const saved = await fetchAndPersistGmailMessage(testUserId, account, rawMsg);
+
+    assert(saved.success, 'Email save must succeed');
+    assert(saved.email.providerMessageId === 'step4-msg-101', 'providerMessageId must match Gmail message ID');
+    assert(saved.email.accountId === testAccountId, 'accountId must match');
+    assert(saved.email.subject === 'Weekly Intelligence Briefing', 'Subject parsed correctly');
+    assert(saved.email.bodyText.includes('All systems operational'), 'Body text extracted');
+
+    // Verify stored in Firestore
+    const stored = await FirestoreDb.getEmailById(testUserId, saved.email.id, testAccountId);
+    assert(stored !== null, 'Email must be retrieved from FirestoreDb');
+    assert(stored?.providerMessageId === 'step4-msg-101', 'Retrieved providerMessageId matches');
+  });
+
+  // 3. Exact deduplication by providerMessageId
+  await runTest('STEP 4 SYNC', '3. Exact deduplication by providerMessageId prevents duplicate emails', async () => {
+    const rawMsgDup = {
+      id: 'step4-msg-101', // SAME provider message ID
+      threadId: 'step4-thread-201',
+      snippet: 'Welcome to MailSentinel Step 4 sync (updated snippet)',
+      historyId: '12345679',
+      internalDate: String(Date.now()),
+      payload: {
+        headers: [
+          { name: 'From', value: 'Security Team <security@defense.gov>' },
+          { name: 'To', value: 'officer.step4@gmail.com' },
+          { name: 'Subject', value: 'Weekly Intelligence Briefing' },
+          { name: 'Date', value: new Date().toUTCString() },
+        ],
+        body: { data: Buffer.from('Briefing contents: All systems operational - updated.').toString('base64') },
+      },
+    };
+
+    const account = (await FirestoreDb.getAccountById(testUserId, testAccountId))!;
+    const savedDup = await fetchAndPersistGmailMessage(testUserId, account, rawMsgDup);
+
+    assert(savedDup.success, 'Duplicate save must succeed via update');
+
+    // Check total emails for this account is still 1
+    const allEmails = await FirestoreDb.getEmails(testUserId, { accountId: testAccountId });
+    assert(allEmails.length === 1, `Must have exactly 1 email, found ${allEmails.length} (no duplicates)`);
+  });
+
+  // 4. Thread aggregation and storage
+  await runTest('STEP 4 SYNC', '4. Thread aggregation in /users/{userId}/emailAccounts/{accountId}/threads', async () => {
+    const thread = await FirestoreDb.getThreadById(testUserId, 'step4-thread-201', testAccountId);
+    assert(thread !== null, 'Thread must exist in FirestoreDb');
+    assert(thread?.messageCount >= 1, 'Thread must have messageCount >= 1');
+  });
+
+  // 5. SyncState tracking in Firestore
+  await runTest('STEP 4 SYNC', '5. SyncState persistence with status, messagesSynced, and historyId', async () => {
+    await FirestoreDb.updateSyncState(testUserId, testAccountId, {
+      status: 'completed',
+      messagesSynced: 1,
+      lastHistoryId: '12345679',
+      lastSuccessfulSyncAt: new Date().toISOString(),
+      progressPercent: 100,
+    });
+
+    const state = await FirestoreDb.getSyncState(testUserId, testAccountId);
+    assert(state !== null, 'Sync state must exist');
+    assert(state?.status === 'completed', 'Status must be completed');
+    assert(state?.lastHistoryId === '12345679', 'lastHistoryId must be recorded');
+  });
+
+  // 6. Zero modifications to database.json emails during Step 4
+  await runTest('STEP 4 SYNC', '6. database.json emails remains completely untouched', () => {
+    const afterDbData = loadDatabase();
+    assert(
+      afterDbData.emails.length === initialDbEmailsCount,
+      `database.json emails must NOT be used for Step 4 sync! Initial: ${initialDbEmailsCount}, After: ${afterDbData.emails.length}`
+    );
+  });
+}
+
+// ============================================================================
 // MAIN RUNNER
 // ============================================================================
 async function main() {
@@ -832,6 +970,7 @@ async function main() {
     await testNotifications();
     await testErrorHandlingAndRateLimiting();
     await testStep35FirestoreAccountStorage();
+    await testStep4GmailSyncAndFirestoreStorage();
   } catch (err) {
     console.error('Test suite runner encountered an unhandled exception:', err);
   }

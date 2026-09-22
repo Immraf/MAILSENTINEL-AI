@@ -68,6 +68,7 @@ export interface FirestoreProviderCredentialDoc {
   emailAddress: string;
   accessTokenEncrypted: string;
   refreshTokenEncrypted?: string;
+  expiresAt?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -80,14 +81,161 @@ export interface FirestoreEmailSyncStateDoc {
   id: string; // accountId
   accountId: string;
   userId: string;
-  status: 'idle' | 'syncing' | 'error' | 'needs_reauth';
+  status: 'idle' | 'queued' | 'syncing' | 'completed' | 'failed' | 'error' | 'needs_reauth' | 'reauthorization_required';
   lastSyncedAt: string;
   progressPercent: number;
   syncedCount: number;
+  messagesSynced?: number;
+  pagesProcessed?: number;
+  startedAt?: string;
+  completedAt?: string;
+  lastSuccessfulSyncAt?: string;
+  lastHistoryId?: string;
+  retryCount?: number;
+  error?: string;
   errorMessage?: string;
   providerHistoryId?: string;
   deltaToken?: string;
   updatedAt: string;
+}
+
+/**
+ * Step 4 Attachment Metadata
+ */
+export interface AttachmentMetadata {
+  id: string;
+  attachmentId?: string;
+  gmailAttachmentId?: string;
+  messageId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+}
+
+/**
+ * Step 4 Normalized Email Schema
+ * Path: /users/{uid}/emailAccounts/{accountId}/emails/{emailId}
+ */
+export interface NormalizedEmail {
+  id: string;
+  userId: string;
+  accountId: string;
+
+  provider: 'gmail';
+  providerMessageId: string;
+  providerThreadId: string;
+
+  from: { name: string; email: string };
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  replyTo?: string;
+
+  subject: string;
+  snippet: string;
+
+  textBody: string;
+  htmlBody: string;
+
+  receivedAt: string; // ISO 8601
+  sentAt?: string;    // ISO 8601
+
+  labels: string[];
+
+  isRead: boolean;
+  isStarred: boolean;
+  isImportant: boolean;
+
+  hasAttachments: boolean;
+  attachments: AttachmentMetadata[];
+
+  headers?: Record<string, string>;
+
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Step 4 Email Thread Schema
+ * Path: /users/{uid}/emailAccounts/{accountId}/threads/{threadId}
+ */
+export interface EmailThread {
+  id: string;
+  userId: string;
+  accountId: string;
+  provider: 'gmail';
+  providerThreadId: string;
+
+  subject: string;
+  messageCount: number;
+  participants: string[];
+  latestMessageAt: string;
+  snippet: string;
+  messageIds: string[];
+
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type SyncStatusType = 'idle' | 'queued' | 'syncing' | 'completed' | 'failed' | 'reauthorization_required';
+
+export interface SyncState {
+  status: SyncStatusType;
+  startedAt?: string;
+  completedAt?: string;
+  lastSuccessfulSyncAt?: string;
+  lastHistoryId?: string;
+  messagesSynced: number;
+  pagesProcessed: number;
+  retryCount?: number;
+  error?: string;
+}
+
+export interface SyncResult {
+  accountId: string;
+  userId: string;
+  emailsProcessed: number;
+  emailsPersisted: number;
+  duplicatesSkipped: number;
+  newHistoryId?: string;
+  durationMs: number;
+  status: 'success' | 'error' | 'reauthorization_required';
+  error?: string;
+}
+
+export interface SyncJob {
+  accountId: string;
+  userId: string;
+  status: 'queued' | 'syncing' | 'completed' | 'failed';
+  startedAt: number;
+}
+
+export interface GmailHeader {
+  name: string;
+  value: string;
+}
+
+export interface GmailMessage {
+  id: string;
+  threadId: string;
+  labelIds?: string[];
+  snippet?: string;
+  historyId?: string;
+  internalDate?: string;
+  payload?: {
+    partId?: string;
+    mimeType?: string;
+    filename?: string;
+    headers?: GmailHeader[];
+    body?: {
+      attachmentId?: string;
+      size?: number;
+      data?: string;
+    };
+    parts?: any[];
+  };
+  sizeEstimate?: number;
+  raw?: string;
 }
 
 /**
@@ -96,6 +244,15 @@ export interface FirestoreEmailSyncStateDoc {
  */
 export interface FirestoreEmailDoc extends Email {
   userId: string;
+  from?: { name: string; email: string };
+  to?: string[];
+  isStarred?: boolean;
+  isImportant?: boolean;
+  textBody?: string;
+  htmlBody?: string;
+  headers?: Record<string, string>;
+  hasAttachments?: boolean;
+  sentAt?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -406,9 +563,9 @@ export interface FirestoreQuarantineItemDoc extends QuarantineItem {
 export interface FirestoreAuditLogDoc {
   id: string;
   userId: string;
-  action: string;
+  action?: string;
   actionType?: string;
-  details: string;
+  details?: string;
   description?: string;
   category?: 'security' | 'sync' | 'rule' | 'account' | 'quarantine' | 'user';
   severity?: 'info' | 'warning' | 'critical';

@@ -53,6 +53,24 @@ service cloud.firestore {
           incoming().userId == existing().userId &&
           !incoming().keys().hasAny(['accessToken', 'refreshToken', 'accessTokenEncrypted', 'refreshTokenEncrypted']);
         allow delete: if isOwner(userId);
+
+        // Account-scoped emails (Step 4 Gmail synchronization storage)
+        match /emails/{emailId} {
+          allow read, list: if isOwner(userId);
+          allow write: if false; // Server-managed via Admin SDK
+        }
+
+        // Account-scoped threads (Step 4 Gmail synchronization storage)
+        match /threads/{threadId} {
+          allow read, list: if isOwner(userId);
+          allow write: if false; // Server-managed via Admin SDK
+        }
+
+        // Account-scoped syncState (Step 4 Gmail synchronization storage)
+        match /syncState/{stateId} {
+          allow read, list: if isOwner(userId);
+          allow write: if false; // Server-managed via Admin SDK
+        }
       }
 
       // 1b. Server-only Provider Credentials (Admin SDK only, client read/write strictly forbidden)

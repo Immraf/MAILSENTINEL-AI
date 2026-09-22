@@ -62,6 +62,21 @@ export class FirestoreDb {
   private static auditLogsMemoryCache: Map<string, FirestoreAuditLogDoc[]> = new Map();
   private static providerCredentialsCache: Map<string, FirestoreProviderCredentialDoc> = new Map();
   private static accountsMemoryCache: Map<string, FirestoreEmailAccountDoc[]> = new Map();
+  private static emailsMemoryCache: Map<string, FirestoreEmailDoc[]> = new Map();
+  private static accountEmailsMemoryCache: Map<string, FirestoreEmailDoc[]> = new Map();
+  private static threadsMemoryCache: Map<string, FirestoreEmailThreadDoc[]> = new Map();
+  private static syncStateMemoryCache: Map<string, FirestoreEmailSyncStateDoc> = new Map();
+
+  static clearMemoryCaches(): void {
+    this.userMemoryCache.clear();
+    this.auditLogsMemoryCache.clear();
+    this.providerCredentialsCache.clear();
+    this.accountsMemoryCache.clear();
+    this.emailsMemoryCache.clear();
+    this.accountEmailsMemoryCache.clear();
+    this.threadsMemoryCache.clear();
+    this.syncStateMemoryCache.clear();
+  }
 
   private static isCloudDisabled = false;
   private static lastCloudAttempt = 0;
@@ -438,6 +453,7 @@ export class FirestoreDb {
       emailAddress: string;
       accessTokenEncrypted: string;
       refreshTokenEncrypted?: string;
+      expiresAt?: number;
     }
   ): Promise<void> {
     const now = new Date().toISOString();
@@ -449,6 +465,7 @@ export class FirestoreDb {
       emailAddress: credentials.emailAddress,
       accessTokenEncrypted: credentials.accessTokenEncrypted,
       refreshTokenEncrypted: credentials.refreshTokenEncrypted,
+      expiresAt: credentials.expiresAt,
       createdAt: now,
       updatedAt: now,
     };
@@ -511,59 +528,68 @@ export class FirestoreDb {
   }
 
   // ==========================================================================
-  // 3. Email Sync State (/users/{userId}/emailSyncState/{accountId})
+  // 3. Email Sync State (/users/{userId}/emailAccounts/{accountId}/syncState/main)
   // ==========================================================================
   static async getSyncState(userId: string, accountId: string): Promise<FirestoreEmailSyncStateDoc | null> {
     if (this.canAttemptCloud()) {
       try {
-        const snap = await this.db.doc(`users/${userId}/emailSyncState/${accountId}`).get();
+        // Step 4 canonical path: /users/{userId}/emailAccounts/{accountId}/syncState/main
+        const snap = await this.db.doc(`users/${userId}/emailAccounts/${accountId}/syncState/main`).get();
         if (snap.exists) {
           this.markCloudSuccess();
-          return snap.data() as FirestoreEmailSyncStateDoc;
+          const data = snap.data() as FirestoreEmailSyncStateDoc;
+          this.syncStateMemoryCache.set(`${userId}:${accountId}`, data);
+          return data;
+        }
+
+        // Secondary path: /users/{userId}/emailSyncState/{accountId}
+        const snap2 = await this.db.doc(`users/${userId}/emailSyncState/${accountId}`).get();
+        if (snap2.exists) {
+          this.markCloudSuccess();
+          const data = snap2.data() as FirestoreEmailSyncStateDoc;
+          this.syncStateMemoryCache.set(`${userId}:${accountId}`, data);
+          return data;
         }
       } catch (err: any) {
         this.handleCloudError('getSyncState', userId, err);
       }
     }
-    return (db.getSyncState(userId, accountId) as any) || null;
+    return this.syncStateMemoryCache.get(`${userId}:${accountId}`) || null;
   }
 
   static async updateSyncState(userId: string, accountId: string, patch: Partial<FirestoreEmailSyncStateDoc>): Promise<void> {
-    const data = loadDatabase();
-    const idx = data.emailSyncState.findIndex((s) => s.userId === userId && s.accountId === accountId);
-    if (idx !== -1) {
-      data.emailSyncState[idx] = { ...data.emailSyncState[idx], ...patch };
-    } else {
-      data.emailSyncState.push({
-        accountId,
-        userId,
-        status: patch.status || 'idle',
-        lastSyncedAt: patch.lastSyncedAt || new Date().toISOString(),
-        progressPercent: patch.progressPercent ?? 100,
-        syncedCount: patch.syncedCount ?? 0,
-        ...patch,
-      });
-    }
-    saveDatabase();
+    const key = `${userId}:${accountId}`;
+    const prev = this.syncStateMemoryCache.get(key);
+    const now = new Date().toISOString();
+    const updated: FirestoreEmailSyncStateDoc = {
+      id: accountId,
+      accountId,
+      userId,
+      status: patch.status || prev?.status || 'idle',
+      lastSyncedAt: patch.lastSyncedAt || prev?.lastSyncedAt || now,
+      progressPercent: patch.progressPercent ?? prev?.progressPercent ?? 0,
+      syncedCount: patch.syncedCount ?? prev?.syncedCount ?? 0,
+      messagesSynced: patch.messagesSynced ?? prev?.messagesSynced ?? patch.syncedCount ?? prev?.syncedCount ?? 0,
+      pagesProcessed: patch.pagesProcessed ?? prev?.pagesProcessed ?? 0,
+      startedAt: patch.startedAt || prev?.startedAt,
+      completedAt: patch.completedAt || prev?.completedAt,
+      lastSuccessfulSyncAt: patch.lastSuccessfulSyncAt || prev?.lastSuccessfulSyncAt,
+      lastHistoryId: patch.lastHistoryId || prev?.lastHistoryId || patch.providerHistoryId || prev?.providerHistoryId,
+      retryCount: patch.retryCount ?? prev?.retryCount ?? 0,
+      error: patch.error || patch.errorMessage || (patch.error === undefined && patch.errorMessage === undefined ? prev?.error : undefined),
+      errorMessage: patch.errorMessage || patch.error || (patch.error === undefined && patch.errorMessage === undefined ? prev?.errorMessage : undefined),
+      providerHistoryId: patch.providerHistoryId || patch.lastHistoryId || prev?.providerHistoryId,
+      deltaToken: patch.deltaToken || prev?.deltaToken,
+      updatedAt: now,
+    };
+    this.syncStateMemoryCache.set(key, updated);
 
     if (this.canAttemptCloud()) {
       try {
-        const ref = this.db.doc(`users/${userId}/emailSyncState/${accountId}`);
-        const now = new Date().toISOString();
-        const docData: FirestoreEmailSyncStateDoc = {
-          id: accountId,
-          accountId,
-          userId,
-          status: patch.status || 'idle',
-          lastSyncedAt: patch.lastSyncedAt || now,
-          progressPercent: patch.progressPercent ?? 100,
-          syncedCount: patch.syncedCount ?? 0,
-          errorMessage: patch.errorMessage,
-          providerHistoryId: patch.providerHistoryId,
-          deltaToken: patch.deltaToken,
-          updatedAt: now,
-        };
-        await ref.set(docData, { merge: true });
+        await Promise.all([
+          this.db.doc(`users/${userId}/emailAccounts/${accountId}/syncState/main`).set(updated, { merge: true }),
+          this.db.doc(`users/${userId}/emailSyncState/${accountId}`).set(updated, { merge: true }),
+        ]);
         this.markCloudSuccess();
       } catch (err: any) {
         this.handleCloudError('updateSyncState', userId, err);
@@ -572,34 +598,116 @@ export class FirestoreDb {
   }
 
   // ==========================================================================
-  // 4. Emails (/users/{userId}/emails/{emailId})
+  // 4. Emails (/users/{userId}/emailAccounts/{accountId}/emails/{emailId})
   // ==========================================================================
-  static async getEmails(userId: string, options?: { accountId?: string; limitCount?: number }): Promise<FirestoreEmailDoc[]> {
+  static async getEmails(
+    userId: string,
+    options?: {
+      accountId?: string;
+      limitCount?: number;
+      category?: string;
+      priority?: string;
+      security?: string;
+      search?: string;
+    }
+  ): Promise<FirestoreEmailDoc[]> {
+    let results: FirestoreEmailDoc[] = [];
+
     if (this.canAttemptCloud()) {
       try {
-        let queryRef: FirebaseFirestore.Query = this.db.collection(`users/${userId}/emails`);
-        if (options?.accountId) {
-          queryRef = queryRef.where('accountId', '==', options.accountId);
-        }
-        if (options?.limitCount) {
-          queryRef = queryRef.limit(options.limitCount);
-        }
-        const snap = await queryRef.get();
-        const emails = snap.docs.map((d) => d.data() as FirestoreEmailDoc);
-        if (emails.length > 0) {
-          this.markCloudSuccess();
-          return emails.sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
+        if (options?.accountId && options.accountId !== 'all') {
+          // Account-scoped subcollection first
+          let q: FirebaseFirestore.Query = this.db.collection(`users/${userId}/emailAccounts/${options.accountId}/emails`);
+          if (options.limitCount) {
+            q = q.limit(options.limitCount);
+          }
+          const snap = await q.get();
+          if (snap.docs.length > 0) {
+            this.markCloudSuccess();
+            results = snap.docs.map((d) => d.data() as FirestoreEmailDoc);
+          } else {
+            // Top-level user emails with where filter
+            let topQ: FirebaseFirestore.Query = this.db.collection(`users/${userId}/emails`).where('accountId', '==', options.accountId);
+            if (options.limitCount) {
+              topQ = topQ.limit(options.limitCount);
+            }
+            const topSnap = await topQ.get();
+            if (topSnap.docs.length > 0) {
+              this.markCloudSuccess();
+              results = topSnap.docs.map((d) => d.data() as FirestoreEmailDoc);
+            }
+          }
+        } else {
+          let topQ: FirebaseFirestore.Query = this.db.collection(`users/${userId}/emails`);
+          if (options?.limitCount) {
+            topQ = topQ.limit(options.limitCount);
+          }
+          const topSnap = await topQ.get();
+          if (topSnap.docs.length > 0) {
+            this.markCloudSuccess();
+            results = topSnap.docs.map((d) => d.data() as FirestoreEmailDoc);
+          }
         }
       } catch (err: any) {
         this.handleCloudError('getEmails', userId, err);
       }
     }
-    return (db.getEmails(userId) as any[]) || [];
+
+    if (results.length === 0) {
+      // Memory cache fallback (isolated strictly per tenant)
+      if (options?.accountId && options.accountId !== 'all') {
+        const accKey = `${userId}:${options.accountId}`;
+        const accEmails = this.accountEmailsMemoryCache.get(accKey) || [];
+        if (accEmails.length > 0) {
+          results = [...accEmails];
+        }
+      }
+
+      if (results.length === 0) {
+        const allUserEmails = this.emailsMemoryCache.get(userId) || [];
+        results = (options?.accountId && options.accountId !== 'all')
+          ? allUserEmails.filter((e) => e.accountId === options.accountId)
+          : [...allUserEmails];
+      }
+    }
+
+    // Apply additional filters
+    if (options?.category) {
+      results = results.filter((e) => (e.aiAnalysis as any)?.category === options.category);
+    }
+    if (options?.priority) {
+      const p = options.priority.toLowerCase();
+      results = results.filter((e) => (e.aiAnalysis as any)?.priority?.toLowerCase() === p);
+    }
+    if (options?.security) {
+      results = results.filter((e) => (e.securityAnalysis as any)?.classification === options.security);
+    }
+    if (options?.search) {
+      const q = options.search.toLowerCase();
+      results = results.filter(
+        (e) =>
+          e.subject?.toLowerCase().includes(q) ||
+          e.senderName?.toLowerCase().includes(q) ||
+          e.sender?.toLowerCase().includes(q) ||
+          (e.bodySnippet && e.bodySnippet.toLowerCase().includes(q)) ||
+          ((e as any).snippet && (e as any).snippet.toLowerCase().includes(q))
+      );
+    }
+
+    const sorted = results.sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
+    return options?.limitCount ? sorted.slice(0, options.limitCount) : sorted;
   }
 
-  static async getEmailById(userId: string, emailId: string): Promise<FirestoreEmailDoc | null> {
+  static async getEmailById(userId: string, emailId: string, accountId?: string): Promise<FirestoreEmailDoc | null> {
     if (this.canAttemptCloud()) {
       try {
+        if (accountId) {
+          const snapAcc = await this.db.doc(`users/${userId}/emailAccounts/${accountId}/emails/${emailId}`).get();
+          if (snapAcc.exists) {
+            this.markCloudSuccess();
+            return snapAcc.data() as FirestoreEmailDoc;
+          }
+        }
         const snap = await this.db.doc(`users/${userId}/emails/${emailId}`).get();
         if (snap.exists) {
           this.markCloudSuccess();
@@ -609,118 +717,232 @@ export class FirestoreDb {
         this.handleCloudError('getEmailById', userId, err);
       }
     }
-    return (db.getEmailById(userId, emailId) as any) || null;
+
+    if (accountId) {
+      const accEmails = this.accountEmailsMemoryCache.get(`${userId}:${accountId}`) || [];
+      const found = accEmails.find((e) => e.id === emailId);
+      if (found) return found;
+    }
+    const all = this.emailsMemoryCache.get(userId) || [];
+    return all.find((e) => e.id === emailId) || null;
   }
 
-  static async saveEmail(userId: string, email: Email): Promise<FirestoreEmailDoc> {
-    const data = loadDatabase();
-    const existingIdx = data.emails.findIndex(
-      (e) =>
-        e.userId === userId &&
-        (e.id === email.id ||
-          (Boolean(email.providerMessageId) && e.providerMessageId === email.providerMessageId) ||
-          (Boolean(email.threadId) &&
-            e.threadId === email.threadId &&
-            e.subject === email.subject &&
-            e.sender === email.sender &&
-            Math.abs(new Date(e.receivedAt).getTime() - new Date(email.receivedAt).getTime()) < 2000))
-    );
-    if (existingIdx !== -1) {
-      data.emails[existingIdx] = { ...data.emails[existingIdx], ...email, userId };
-    } else {
-      data.emails.unshift({ ...email, userId });
-    }
-    saveDatabase();
-
+  static async saveEmail(userId: string, email: Email | FirestoreEmailDoc | any): Promise<FirestoreEmailDoc> {
     const now = new Date().toISOString();
+    // Safety check: Never store sensitive credentials in email docs
+    const sanitizedEmail = { ...email };
+    delete (sanitizedEmail as any).accessToken;
+    delete (sanitizedEmail as any).refreshToken;
+    delete (sanitizedEmail as any).accessTokenEncrypted;
+    delete (sanitizedEmail as any).refreshTokenEncrypted;
+    delete (sanitizedEmail as any).clientSecret;
+
     const docData: FirestoreEmailDoc = {
-      ...email,
+      ...sanitizedEmail,
       userId,
       createdAt: (email as any).createdAt || email.receivedAt || now,
       updatedAt: now,
     };
+
+    // Update memory caches
+    const userEmails = this.emailsMemoryCache.get(userId) || [];
+    const existingIdx = userEmails.findIndex((e) => e.id === email.id || (e.providerMessageId && e.providerMessageId === email.providerMessageId));
+    if (existingIdx !== -1) {
+      userEmails[existingIdx] = docData;
+    } else {
+      userEmails.unshift(docData);
+    }
+    this.emailsMemoryCache.set(userId, userEmails);
+
+    if (email.accountId) {
+      const accKey = `${userId}:${email.accountId}`;
+      const accEmails = this.accountEmailsMemoryCache.get(accKey) || [];
+      const existingAccIdx = accEmails.findIndex((e) => e.id === email.id || (e.providerMessageId && e.providerMessageId === email.providerMessageId));
+      if (existingAccIdx !== -1) {
+        accEmails[existingAccIdx] = docData;
+      } else {
+        accEmails.unshift(docData);
+      }
+      this.accountEmailsMemoryCache.set(accKey, accEmails);
+    }
+
     if (this.canAttemptCloud()) {
       try {
-        await this.db.doc(`users/${userId}/emails/${email.id}`).set(docData, { merge: true });
+        const promises: Promise<any>[] = [
+          this.db.doc(`users/${userId}/emails/${email.id}`).set(docData, { merge: true }),
+        ];
+        if (email.accountId) {
+          promises.push(this.db.doc(`users/${userId}/emailAccounts/${email.accountId}/emails/${email.id}`).set(docData, { merge: true }));
+        }
+        await Promise.all(promises);
         this.markCloudSuccess();
       } catch (err: any) {
         this.handleCloudError('saveEmail', userId, err);
       }
     }
+
     return docData;
   }
 
-  static async updateEmail(userId: string, emailId: string, patch: Partial<Email>): Promise<FirestoreEmailDoc | null> {
-    const data = loadDatabase();
-    const idx = data.emails.findIndex((e) => e.userId === userId && e.id === emailId);
+  static async saveEmailsBatch(userId: string, accountId: string, emails: (Email | FirestoreEmailDoc | any)[]): Promise<void> {
+    if (!emails || emails.length === 0) return;
+
+    for (const email of emails) {
+      await this.saveEmail(userId, { ...email, accountId });
+    }
+  }
+
+  static async updateEmail(userId: string, emailId: string, patch: Partial<FirestoreEmailDoc | Email>, accountId?: string): Promise<FirestoreEmailDoc | null> {
+    const now = new Date().toISOString();
+    const current: FirestoreEmailDoc | null = await this.getEmailById(userId, emailId, accountId);
+    if (!current) return null;
+
+    const updated: FirestoreEmailDoc = {
+      ...current,
+      ...patch,
+      userId,
+      updatedAt: now,
+    };
+
+    // Update memory caches
+    const userEmails = this.emailsMemoryCache.get(userId) || [];
+    const idx = userEmails.findIndex((e) => e.id === emailId);
     if (idx !== -1) {
-      data.emails[idx] = { ...data.emails[idx], ...patch };
-      saveDatabase();
+      userEmails[idx] = updated;
+      this.emailsMemoryCache.set(userId, userEmails);
+    }
+
+    const targetAccId = accountId || current.accountId;
+    if (targetAccId) {
+      const accKey = `${userId}:${targetAccId}`;
+      const accEmails = this.accountEmailsMemoryCache.get(accKey) || [];
+      const accIdx = accEmails.findIndex((e) => e.id === emailId);
+      if (accIdx !== -1) {
+        accEmails[accIdx] = updated;
+        this.accountEmailsMemoryCache.set(accKey, accEmails);
+      }
     }
 
     if (this.canAttemptCloud()) {
       try {
-        const ref = this.db.doc(`users/${userId}/emails/${emailId}`);
-        const snap = await ref.get();
-        if (snap.exists) {
-          const updated: FirestoreEmailDoc = {
-            ...(snap.data() as FirestoreEmailDoc),
-            ...patch,
-            userId,
-            updatedAt: new Date().toISOString(),
-          };
-          await ref.set(updated, { merge: true });
-          this.markCloudSuccess();
-          return updated;
+        const promises: Promise<any>[] = [
+          this.db.doc(`users/${userId}/emails/${emailId}`).set(updated, { merge: true }),
+        ];
+        if (targetAccId) {
+          promises.push(this.db.doc(`users/${userId}/emailAccounts/${targetAccId}/emails/${emailId}`).set(updated, { merge: true }));
         }
+        await Promise.all(promises);
+        this.markCloudSuccess();
       } catch (err: any) {
         this.handleCloudError('updateEmail', userId, err);
       }
     }
-    return (db.getEmailById(userId, emailId) as any) || null;
+
+    return updated;
   }
 
-  static async deleteEmail(userId: string, emailId: string): Promise<boolean> {
-    const data = loadDatabase();
-    const initialLen = data.emails.length;
-    data.emails = data.emails.filter((e) => !(e.userId === userId && e.id === emailId));
-    saveDatabase();
-    const localDeleted = data.emails.length < initialLen;
+  static async deleteEmail(userId: string, emailId: string, accountId?: string): Promise<boolean> {
+    let deleted = false;
+    const userEmails = this.emailsMemoryCache.get(userId) || [];
+    const filteredUser = userEmails.filter((e) => e.id !== emailId);
+    if (filteredUser.length < userEmails.length) {
+      deleted = true;
+      this.emailsMemoryCache.set(userId, filteredUser);
+    }
+
+    if (accountId) {
+      const accKey = `${userId}:${accountId}`;
+      const accEmails = this.accountEmailsMemoryCache.get(accKey) || [];
+      this.accountEmailsMemoryCache.set(accKey, accEmails.filter((e) => e.id !== emailId));
+    }
+
     if (this.canAttemptCloud()) {
       try {
-        const ref = this.db.doc(`users/${userId}/emails/${emailId}`);
-        await ref.delete();
+        const promises: Promise<any>[] = [
+          this.db.doc(`users/${userId}/emails/${emailId}`).delete(),
+        ];
+        if (accountId) {
+          promises.push(this.db.doc(`users/${userId}/emailAccounts/${accountId}/emails/${emailId}`).delete());
+        }
+        await Promise.all(promises);
         this.markCloudSuccess();
+        deleted = true;
       } catch (err: any) {
         this.handleCloudError('deleteEmail', userId, err);
       }
     }
-    return localDeleted;
+
+    return deleted;
   }
 
   // ==========================================================================
-  // 5. Email Threads (/users/{userId}/emailThreads/{threadId})
+  // 5. Email Threads (/users/{userId}/emailAccounts/{accountId}/threads/{threadId})
   // ==========================================================================
-  static async getThreads(userId: string): Promise<FirestoreEmailThreadDoc[]> {
+  static async getThreads(userId: string, accountId?: string): Promise<FirestoreEmailThreadDoc[]> {
     if (this.canAttemptCloud()) {
       try {
+        if (accountId) {
+          const snapAcc = await this.db.collection(`users/${userId}/emailAccounts/${accountId}/threads`).get();
+          if (snapAcc.docs.length > 0) {
+            this.markCloudSuccess();
+            return snapAcc.docs.map((d) => d.data() as FirestoreEmailThreadDoc);
+          }
+        }
         const snap = await this.db.collection(`users/${userId}/emailThreads`).get();
-        return snap.docs.map((d) => d.data() as FirestoreEmailThreadDoc);
+        if (snap.docs.length > 0) {
+          this.markCloudSuccess();
+          const docs = snap.docs.map((d) => d.data() as FirestoreEmailThreadDoc);
+          return accountId ? docs.filter((t) => t.accountId === accountId) : docs;
+        }
       } catch (err: any) {
         this.handleCloudError('getThreads', userId, err);
       }
     }
-    return [];
+
+    if (accountId) {
+      return this.threadsMemoryCache.get(`${userId}:${accountId}`) || [];
+    }
+    const allThreads: FirestoreEmailThreadDoc[] = [];
+    for (const [key, threads] of this.threadsMemoryCache.entries()) {
+      if (key.startsWith(`${userId}:`)) {
+        allThreads.push(...threads);
+      }
+    }
+    return allThreads;
   }
 
-  static async saveThread(userId: string, thread: FirestoreEmailThreadDoc): Promise<void> {
+  static async getThreadById(userId: string, threadId: string, accountId?: string): Promise<FirestoreEmailThreadDoc | null> {
+    const allThreads = await this.getThreads(userId, accountId);
+    return allThreads.find((t) => t.id === threadId || (t as any).providerThreadId === threadId || t.id === `thread-${threadId}`) || null;
+  }
+
+  static async saveThread(userId: string, accountId: string, thread: FirestoreEmailThreadDoc | any): Promise<void> {
+    const now = new Date().toISOString();
+    const docData: FirestoreEmailThreadDoc = {
+      ...thread,
+      userId,
+      accountId,
+      createdAt: thread.createdAt || now,
+      updatedAt: now,
+    };
+
+    const key = `${userId}:${accountId}`;
+    const list = this.threadsMemoryCache.get(key) || [];
+    const idx = list.findIndex((t) => t.id === thread.id);
+    if (idx !== -1) {
+      list[idx] = docData;
+    } else {
+      list.push(docData);
+    }
+    this.threadsMemoryCache.set(key, list);
+
     if (this.canAttemptCloud()) {
       try {
-        await this.db.doc(`users/${userId}/emailThreads/${thread.id}`).set({
-          ...thread,
-          userId,
-          updatedAt: new Date().toISOString(),
-        }, { merge: true });
+        await Promise.all([
+          this.db.doc(`users/${userId}/emailAccounts/${accountId}/threads/${thread.id}`).set(docData, { merge: true }),
+          this.db.doc(`users/${userId}/emailThreads/${thread.id}`).set(docData, { merge: true }),
+        ]);
+        this.markCloudSuccess();
       } catch (err: any) {
         this.handleCloudError('saveThread', userId, err);
       }

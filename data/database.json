@@ -7,6 +7,13 @@
       "createdAt": "2026-09-12T17:02:08.139Z",
       "updatedAt": "2026-09-12T17:02:08.139Z",
       "isDemo": true
+    },
+    {
+      "id": "user-test-alice-1790104469289",
+      "email": "alice@enterprise.com",
+      "displayName": "Alice Engineer",
+      "sessionToken": "alice-secret-token-1790104469289",
+      "createdAt": "2026-09-22T19:14:29.289Z"
     }
   ],
   "emailAccounts": [
@@ -328,9 +335,67 @@
       "lastSyncedAt": "2026-09-21T18:34:48.019Z",
       "progressPercent": 100,
       "syncedCount": 12
+    },
+    {
+      "accountId": "acc-sync-tracker",
+      "userId": "user-sync-test-1790104469299",
+      "status": "idle",
+      "lastSyncedAt": "2026-09-22T19:14:29.300Z",
+      "progressPercent": 100,
+      "syncedCount": 300,
+      "providerHistoryId": "history-token-999"
     }
   ],
   "emails": [
+    {
+      "id": "email-msg-001",
+      "providerMessageId": "gmail-rfc822-abc123xyz",
+      "accountId": "acc-sync-1",
+      "threadId": "thread-sync-1",
+      "sender": "alerts@service.com",
+      "senderName": "Service Alerts",
+      "senderDomain": "service.com",
+      "recipient": "user@company.com",
+      "subject": "Server Status Update",
+      "snippet": "Everything normal - confirmed",
+      "bodyText": "Status: 200 OK",
+      "receivedAt": "2026-09-17T00:00:00.000Z",
+      "isRead": true,
+      "isStarred": false,
+      "isQuarantined": false,
+      "hasAttachments": false,
+      "attachments": [],
+      "labels": [
+        "Updates"
+      ],
+      "category": "Updates",
+      "priority": "Low",
+      "userId": "user-sync-test-1790104469299"
+    },
+    {
+      "id": "email-alice-confidential",
+      "accountId": "acc-alice-1",
+      "threadId": "thread-alice-1",
+      "sender": "board@enterprise.com",
+      "senderName": "Board of Directors",
+      "senderDomain": "enterprise.com",
+      "recipient": "alice@enterprise.com",
+      "subject": "Confidential Financial Review Q4",
+      "snippet": "Q4 EBITDA forecast details",
+      "bodyText": "EBITDA projected at $45M. Strictly confidential to Alice.",
+      "receivedAt": "2026-09-22T19:14:29.293Z",
+      "isRead": false,
+      "isStarred": false,
+      "isQuarantined": false,
+      "hasAttachments": false,
+      "attachments": [],
+      "labels": [
+        "Confidential"
+      ],
+      "category": "Finance",
+      "priority": "High",
+      "userId": "user-test-alice-1790104469289"
+    },
     {
       "id": "outlook-ms-msg-compliance-acc-outlook-1789467025640",
       "providerMessageId": "ms-msg-compliance-acc-outlook-1789467025640",
@@ -2600,6 +2665,37 @@
   ],
   "auditLogs": [
     {
+      "id": "log-logout-1790104521527",
+      "timestamp": "2026-09-22T19:15:21.020Z",
+      "action": "LOGOUT",
+      "actionType": "LOGOUT",
+      "details": "User signed out",
+      "category": "user",
+      "severity": "info",
+      "userId": "test-user-1790104521020"
+    },
+    {
+      "id": "log-login-1790104521524",
+      "timestamp": "2026-09-22T19:15:21.020Z",
+      "action": "LOGIN",
+      "actionType": "LOGIN",
+      "details": "User authenticated via Google Sign-In",
+      "category": "user",
+      "severity": "info",
+      "userId": "test-user-1790104521020"
+    },
+    {
+      "id": "log-auth-created-1790099668047",
+      "timestamp": "2026-09-22T17:54:28.047Z",
+      "action": "PROFILE_CREATED",
+      "actionType": "PROFILE_CREATED",
+      "details": "Profile created in Firestore for umarimran274@gmail.com",
+      "description": "Profile created in Firestore for umarimran274@gmail.com",
+      "category": "user",
+      "severity": "info",
+      "userId": "vrN93nms7hWOmf6wJ4IrnRJRjRm1"
+    },
+    {
       "id": "log-auth-created-1790015432157",
       "timestamp": "2026-09-21T18:30:32.157Z",
       "action": "PROFILE_CREATED",
@@ -2856,6 +2952,34 @@
       "quietHoursEnd": "07:00",
       "minimumPriorityForPush": "High",
       "minimumPriorityForWhatsApp": "Critical"
+    },
+    "user-test-alice-1790104469289": {
+      "pushEnabled": true,
+      "whatsappEnabled": true,
+      "whatsappNumber": "+1 (555) 019-2834",
+      "whatsappPhone": "+1 (555) 019-2834",
+      "webPushEnabled": true,
+      "dailyDigestEnabled": true,
+      "dailyDigestTime": "08:00",
+      "quietHoursEnabled": true,
+      "quietHoursStart": "22:00",
+      "quietHoursEnd": "07:00",
+      "quietHours": {
+        "enabled": true,
+        "start": "22:00",
+        "end": "07:00",
+        "allowCriticalSecurity": true
+      },
+      "triggers": {
+        "critical": true,
+        "high": true,
+        "threats": true,
+        "deadlines": true,
+        "quarantine": true,
+        "summary": false
+      },
+      "minimumPriorityForPush": "High",
+      "minimumPriorityForWhatsApp": "Critical"
     }
   },
   "securitySettings": {
@@ -2865,10 +2989,105 @@
       "blockDoubleExtensions": true,
       "alertOnDmarcFail": true,
       "checkLookalikeDomains": true
+    },
+    "user-test-alice-1790104469289": {
+      "sensitivity": "Balanced",
+      "autoQuarantinePhishing": true,
+      "blockDoubleExtensions": true,
+      "alertOnDmarcFail": true,
+      "checkLookalikeDomains": true
     }
   },
-  "notifications": [],
+  "notifications": [
+    {
+      "id": "notif-1790104469304-v2f8d",
+      "userId": "user-notif-test-1790104469302",
+      "emailId": "email-thread-alert-2",
+      "threadId": "shared-thread-xyz",
+      "title": "⚠️ High Priority: Urgent Project Question",
+      "body": "Urgent request for project review",
+      "priority": "High",
+      "isSecurityAlert": false,
+      "securityClassification": "SAFE",
+      "securityRiskScore": 0,
+      "actionRequired": true,
+      "deadline": null,
+      "decisionReasons": [
+        "Direct recipient action required",
+        "Thread deduplication: Alert already dispatched for thread \"shared-thread-xyz\" within the last 60 minutes. Subsequent reply suppressed to avoid alert fatigue."
+      ],
+      "read": false,
+      "createdAt": "2026-09-22T19:14:29.304Z"
+    },
+    {
+      "id": "notif-1790104469303-sdaam",
+      "userId": "user-notif-test-1790104469302",
+      "emailId": "email-thread-alert-1",
+      "threadId": "shared-thread-xyz",
+      "title": "⚠️ High Priority: Urgent Project Question",
+      "body": "Urgent request for project review",
+      "priority": "High",
+      "isSecurityAlert": false,
+      "securityClassification": "SAFE",
+      "securityRiskScore": 0,
+      "actionRequired": true,
+      "deadline": null,
+      "decisionReasons": [
+        "Direct recipient action required"
+      ],
+      "read": false,
+      "createdAt": "2026-09-22T19:14:29.303Z"
+    }
+  ],
   "notificationDeliveries": [
+    {
+      "id": "deliv-dedup-1790104469305",
+      "userId": "user-notif-test-1790104469302",
+      "notificationId": "notif-1790104469304-v2f8d",
+      "emailId": "email-thread-alert-2",
+      "threadId": "shared-thread-xyz",
+      "channel": "browser_push",
+      "status": "suppressed",
+      "createdAt": "2026-09-22T19:14:29.304Z",
+      "reason": "Thread deduplication: Alert already dispatched for thread \"shared-thread-xyz\" within the last 60 minutes. Subsequent reply suppressed to avoid alert fatigue.",
+      "payload": {
+        "threadId": "shared-thread-xyz",
+        "subject": "Urgent Project Question"
+      }
+    },
+    {
+      "id": "deliv-desktop-1790104469304-ioce",
+      "userId": "user-notif-test-1790104469302",
+      "notificationId": "notif-1790104469303-sdaam",
+      "emailId": "email-thread-alert-1",
+      "threadId": "shared-thread-xyz",
+      "channel": "desktop",
+      "status": "sent",
+      "createdAt": "2026-09-22T19:14:29.303Z",
+      "sentAt": "2026-09-22T19:14:29.304Z",
+      "payload": {
+        "title": "⚠️ High Priority: Urgent Project Question",
+        "body": "Urgent request for project review",
+        "priority": "High"
+      }
+    },
+    {
+      "id": "deliv-browser-1790104469304-yo3h",
+      "userId": "user-notif-test-1790104469302",
+      "notificationId": "notif-1790104469303-sdaam",
+      "emailId": "email-thread-alert-1",
+      "threadId": "shared-thread-xyz",
+      "channel": "browser_push",
+      "status": "failed",
+      "createdAt": "2026-09-22T19:14:29.303Z",
+      "error": "Push notifications are not configured.",
+      "reason": "No registered Web Push FCM device tokens found for user.",
+      "payload": {
+        "title": "⚠️ High Priority: Urgent Project Question",
+        "body": "Urgent request for project review",
+        "priority": "High"
+      }
+    },
     {
       "id": "deliv-push-1789467061446",
       "userId": "user-default",
@@ -2948,24 +3167,7 @@
       "userAgent": "Mozilla/5.0 Test Browser"
     }
   ],
-  "oauthStates": [
-    {
-      "state": "3d87a5e463a7c0932be46ca38026995597329fb0aba15ab50e94eec93adf30b6",
-      "userId": "user-default",
-      "provider": "outlook",
-      "createdAt": 1789467016257,
-      "expiresAt": 1789467616257,
-      "redirectUri": "https://ais-dev-yuatpimdnpt45thghwvipu-697547337971.europe-west2.run.app/api/accounts/outlook/callback"
-    },
-    {
-      "state": "ea6308270eb2d6fabcbfed6ca29d612e6052d02e591a79a71fc69ff1ac5888cf",
-      "userId": "user-default",
-      "provider": "outlook",
-      "createdAt": 1789467044289,
-      "expiresAt": 1789467644289,
-      "redirectUri": "https://ais-dev-yuatpimdnpt45thghwvipu-697547337971.europe-west2.run.app/api/accounts/outlook/callback"
-    }
-  ],
+  "oauthStates": [],
   "emailAnalyses": [
     {
       "id": "analysis-outlook-ms-msg-compliance-acc-outlook-1789467025640",

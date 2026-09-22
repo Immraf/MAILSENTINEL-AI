@@ -18,6 +18,7 @@ import {
 import { authMiddleware, authRouter, AuthenticatedRequest } from './server/auth';
 import { oauthRouter } from './server/oauth';
 import { startAccountSync } from './server/syncWorker';
+import { syncGmailAccount, isSyncJobRunning } from './server/gmailSync';
 import { evaluateAndDispatchNotification, confirmNotificationDelivery } from './server/notifications';
 import { executeGroundedAsk, searchUserEmails } from './server/search';
 import { analyzeEmailSecurityHeuristics } from './src/utils/securityEngine';
@@ -302,31 +303,85 @@ async function startServer() {
     }
   });
 
-  app.post(['/api/accounts/:id/sync', '/api/accounts/:id/resync'], authMiddleware, async (req, res) => {
+  app.post(['/api/email-accounts/:id/sync', '/api/accounts/:id/sync'], authMiddleware, async (req, res) => {
     try {
       const user = (req as AuthenticatedRequest).user;
       const uid = user.uid || (user as any).id;
-      const account = await FirestoreDb.getAccountById(uid, req.params.id);
+      const accountId = req.params.id;
+      const account = await FirestoreDb.getAccountById(uid, accountId);
       if (!account) {
         return res.status(404).json({ error: { code: 'ACCOUNT_NOT_FOUND', message: 'Account not found.' } });
       }
-      res.json({
-        success: true,
-        message: `Account status refreshed for ${account.emailAddress}.`,
-        account,
-      });
+
+      if (account.provider === 'gmail') {
+        const fullSync = req.body?.fullSync === true;
+        const maxDays = typeof req.body?.maxDays === 'number' ? req.body.maxDays : 90;
+        const result = await syncGmailAccount(uid, account.id, { fullSync, maxDays });
+        return res.json({
+          success: result.status === 'success',
+          result,
+          message: result.status === 'success'
+            ? `Successfully synchronized ${result.emailsPersisted} message(s).`
+            : (result.error || 'Sync encountered an issue'),
+        });
+      } else {
+        await startAccountSync(uid, account.id);
+        return res.json({
+          success: true,
+          message: `Background sync initiated for ${account.emailAddress}.`,
+        });
+      }
     } catch (err: any) {
+      console.error('Error syncing account:', err);
       res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to sync account' } });
     }
   });
 
-  app.get('/api/accounts/:id/sync-status', authMiddleware, async (req, res) => {
+  app.post(['/api/email-accounts/:id/resync', '/api/accounts/:id/resync'], authMiddleware, async (req, res) => {
     try {
       const user = (req as AuthenticatedRequest).user;
       const uid = user.uid || (user as any).id;
-      const syncState = await FirestoreDb.getSyncState(uid, req.params.id);
+      const accountId = req.params.id;
+      const account = await FirestoreDb.getAccountById(uid, accountId);
+      if (!account) {
+        return res.status(404).json({ error: { code: 'ACCOUNT_NOT_FOUND', message: 'Account not found.' } });
+      }
+
+      if (account.provider === 'gmail') {
+        const result = await syncGmailAccount(uid, account.id, { fullSync: true });
+        return res.json({
+          success: result.status === 'success',
+          result,
+          message: result.status === 'success'
+            ? `Full resynchronization completed. ${result.emailsPersisted} message(s) processed.`
+            : (result.error || 'Resync encountered an issue'),
+        });
+      } else {
+        await startAccountSync(uid, account.id);
+        return res.json({
+          success: true,
+          message: `Background resync initiated for ${account.emailAddress}.`,
+        });
+      }
+    } catch (err: any) {
+      console.error('Error resyncing account:', err);
+      res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to resync account' } });
+    }
+  });
+
+  app.get(['/api/email-accounts/:id/sync-status', '/api/accounts/:id/sync-status'], authMiddleware, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const uid = user.uid || (user as any).id;
+      const accountId = req.params.id;
+      const syncState = await FirestoreDb.getSyncState(uid, accountId);
       if (!syncState) {
-        return res.status(404).json({ error: { code: 'SYNC_STATE_NOT_FOUND', message: 'No sync record found for account.' } });
+        return res.json({
+          accountId,
+          status: 'idle',
+          syncedCount: 0,
+          progressPercent: 100,
+        });
       }
       res.json(syncState);
     } catch (err: any) {
@@ -334,15 +389,22 @@ async function startServer() {
     }
   });
 
-  app.post('/api/accounts/sync-all', authMiddleware, async (req, res) => {
+  app.post(['/api/email-accounts/sync-all', '/api/accounts/sync-all'], authMiddleware, async (req, res) => {
     try {
       const user = (req as AuthenticatedRequest).user;
       const uid = user.uid || (user as any).id;
       const accounts = await FirestoreDb.getAccounts(uid);
+      for (const acc of accounts) {
+        if (acc.provider === 'gmail') {
+          syncGmailAccount(uid, acc.id).catch((e) => console.error(`Sync error for ${acc.id}:`, e));
+        } else {
+          startAccountSync(uid, acc.id).catch((e) => console.error(`Sync error for ${acc.id}:`, e));
+        }
+      }
       res.json({
         success: true,
-        message: `${accounts.length} mailbox(es) connected.`,
-        accounts,
+        message: `Triggered synchronization for ${accounts.length} mailbox(es).`,
+        count: accounts.length,
       });
     } catch (err: any) {
       res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to sync accounts' } });
@@ -350,104 +412,170 @@ async function startServer() {
   });
 
   // ==========================================================================
-  // 5. UNIFIED INBOX & EMAILS
+  // 5. UNIFIED INBOX & EMAILS (Firestore Authoritative)
   // ==========================================================================
-  app.get('/api/emails', authMiddleware, (req, res) => {
-    const user = (req as AuthenticatedRequest).user;
-    let userEmails = db.getEmails(user.id);
-
-    const { accountId, search, category, priority, security } = req.query;
-
-    if (accountId && accountId !== 'all') {
-      userEmails = userEmails.filter((e) => e.accountId === accountId);
+  app.get(['/api/email-accounts/:id/emails', '/api/accounts/:id/emails'], authMiddleware, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const uid = user.uid || (user as any).id;
+      const accountId = req.params.id;
+      const emails = await FirestoreDb.getEmails(uid, { accountId });
+      res.json(emails);
+    } catch (err: any) {
+      res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to fetch account emails' } });
     }
-    if (category) {
-      userEmails = userEmails.filter((e) => e.aiAnalysis.category === category);
-    }
-    if (priority) {
-      userEmails = userEmails.filter((e) => e.aiAnalysis.priority.toLowerCase() === String(priority).toLowerCase());
-    }
-    if (security) {
-      userEmails = userEmails.filter((e) => e.securityAnalysis.classification === security);
-    }
-    if (search) {
-      const q = String(search).toLowerCase();
-      userEmails = userEmails.filter(
-        (e) =>
-          e.subject.toLowerCase().includes(q) ||
-          e.senderName.toLowerCase().includes(q) ||
-          e.sender.toLowerCase().includes(q) ||
-          e.bodySnippet.toLowerCase().includes(q)
-      );
-    }
-
-    res.json(userEmails);
   });
 
-  app.get('/api/emails/:id', authMiddleware, (req, res) => {
-    const user = (req as AuthenticatedRequest).user;
-    const email = db.getEmailById(user.id, req.params.id);
-    if (!email) {
-      return res.status(404).json({ error: { code: 'EMAIL_NOT_FOUND', message: 'Email not found.' } });
+  app.get('/api/emails', authMiddleware, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const uid = user.uid || (user as any).id;
+      const { accountId, search, category, priority, security } = req.query;
+
+      const userEmails = await FirestoreDb.getEmails(uid, {
+        accountId: accountId as string,
+        category: category as string,
+        priority: priority as string,
+        security: security as string,
+        search: search as string,
+      });
+
+      res.json(userEmails);
+    } catch (err: any) {
+      console.error('Error fetching emails from Firestore:', err);
+      res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to fetch emails' } });
     }
-    res.json(email);
   });
 
-  app.patch('/api/emails/:id', authMiddleware, (req, res) => {
-    const user = (req as AuthenticatedRequest).user;
-    const updated = db.updateEmail(user.id, req.params.id, req.body);
-    if (!updated) {
-      return res.status(404).json({ error: { code: 'EMAIL_NOT_FOUND', message: 'Email not found.' } });
+  app.get('/api/emails/:id', authMiddleware, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const uid = user.uid || (user as any).id;
+      const email = await FirestoreDb.getEmailById(uid, req.params.id);
+      if (!email) {
+        return res.status(404).json({ error: { code: 'EMAIL_NOT_FOUND', message: 'Email not found.' } });
+      }
+      res.json(email);
+    } catch (err: any) {
+      res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to fetch email' } });
     }
-    res.json(updated);
   });
 
-  app.post('/api/emails/:id/read', authMiddleware, (req, res) => {
-    const user = (req as AuthenticatedRequest).user;
-    const isRead = req.body?.isRead ?? true;
-    const updated = db.updateEmail(user.id, req.params.id, { isRead });
-    res.json({ success: Boolean(updated), email: updated });
-  });
-
-  app.post('/api/emails/:id/archive', authMiddleware, (req, res) => {
-    const user = (req as AuthenticatedRequest).user;
-    const updated = db.updateEmail(user.id, req.params.id, { isArchived: true });
-    db.addAuditLog(user.id, {
-      id: `log-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      actionType: 'EMAIL_SCANNED',
-      description: `Archived email: ${req.params.id}`,
-    });
-    res.json({ success: Boolean(updated), email: updated });
-  });
-
-  app.post('/api/emails/:id/quarantine', authMiddleware, (req, res) => {
-    const user = (req as AuthenticatedRequest).user;
-    const email = db.getEmailById(user.id, req.params.id);
-    if (!email) {
-      return res.status(404).json({ error: { code: 'EMAIL_NOT_FOUND', message: 'Email not found.' } });
+  app.patch('/api/emails/:id', authMiddleware, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const uid = user.uid || (user as any).id;
+      const updated = await FirestoreDb.updateEmail(uid, req.params.id, req.body);
+      if (!updated) {
+        return res.status(404).json({ error: { code: 'EMAIL_NOT_FOUND', message: 'Email not found.' } });
+      }
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to update email' } });
     }
+  });
 
-    db.updateEmail(user.id, email.id, { isQuarantined: true });
-    const item: QuarantineItem = {
-      id: `quar-${Date.now()}`,
-      emailId: email.id,
-      email: { ...email, isQuarantined: true },
-      quarantinedAt: new Date().toISOString(),
-      reason: 'Manual quarantine by user',
-      riskScore: email.securityAnalysis.riskScore,
-      status: 'quarantined',
-    };
-    db.saveQuarantineItem(user.id, item);
+  app.post('/api/emails/:id/read', authMiddleware, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const uid = user.uid || (user as any).id;
+      const isRead = req.body?.isRead ?? true;
+      const updated = await FirestoreDb.updateEmail(uid, req.params.id, { isRead });
+      res.json({ success: Boolean(updated), email: updated });
+    } catch (err: any) {
+      res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to update email read state' } });
+    }
+  });
 
-    db.addAuditLog(user.id, {
-      id: `log-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      actionType: 'QUARANTINE_ACTION',
-      description: `Quarantined message "${email.subject}" (${email.sender})`,
-    });
+  app.post('/api/emails/:id/archive', authMiddleware, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const uid = user.uid || (user as any).id;
+      const updated = await FirestoreDb.updateEmail(uid, req.params.id, { isArchived: true });
+      await FirestoreDb.addAuditLog(uid, {
+        id: `log-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        actionType: 'EMAIL_SCANNED',
+        description: `Archived email: ${req.params.id}`,
+      });
+      res.json({ success: Boolean(updated), email: updated });
+    } catch (err: any) {
+      res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to archive email' } });
+    }
+  });
 
-    res.json({ success: true, item });
+  app.post('/api/emails/:id/quarantine', authMiddleware, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const uid = user.uid || (user as any).id;
+      const email = await FirestoreDb.getEmailById(uid, req.params.id);
+      if (!email) {
+        return res.status(404).json({ error: { code: 'EMAIL_NOT_FOUND', message: 'Email not found.' } });
+      }
+
+      await FirestoreDb.updateEmail(uid, email.id, { isQuarantined: true });
+      const item: QuarantineItem = {
+        id: `quar-${Date.now()}`,
+        emailId: email.id,
+        email: { ...email, isQuarantined: true },
+        quarantinedAt: new Date().toISOString(),
+        reason: 'Manual quarantine by user',
+        riskScore: email.securityAnalysis?.riskScore || 50,
+        status: 'quarantined',
+      };
+      await FirestoreDb.saveQuarantineItem(uid, item);
+
+      await FirestoreDb.addAuditLog(uid, {
+        id: `log-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        actionType: 'QUARANTINE_ACTION',
+        description: `Quarantined message "${email.subject}" (${email.sender || email.from?.email})`,
+      });
+
+      res.json({ success: true, item });
+    } catch (err: any) {
+      res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to quarantine email' } });
+    }
+  });
+
+  // ==========================================================================
+  // THREADS (Firestore Authoritative)
+  // ==========================================================================
+  app.get(['/api/email-accounts/:id/threads', '/api/accounts/:id/threads'], authMiddleware, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const uid = user.uid || (user as any).id;
+      const threads = await FirestoreDb.getThreads(uid, req.params.id);
+      res.json(threads);
+    } catch (err: any) {
+      res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to fetch account threads' } });
+    }
+  });
+
+  app.get('/api/threads', authMiddleware, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const uid = user.uid || (user as any).id;
+      const accountId = req.query.accountId as string | undefined;
+      const threads = await FirestoreDb.getThreads(uid, accountId);
+      res.json(threads);
+    } catch (err: any) {
+      res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to fetch threads' } });
+    }
+  });
+
+  app.get('/api/threads/:id', authMiddleware, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const uid = user.uid || (user as any).id;
+      const thread = await FirestoreDb.getThreadById(uid, req.params.id);
+      if (!thread) {
+        return res.status(404).json({ error: { code: 'THREAD_NOT_FOUND', message: 'Thread not found.' } });
+      }
+      res.json(thread);
+    } catch (err: any) {
+      res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Failed to fetch thread' } });
+    }
   });
 
   // Intelligence Pipeline: Separately Persisted Analysis

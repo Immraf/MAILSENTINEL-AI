@@ -75,8 +75,14 @@ export class InMemoryFirestore {
   public collection(collectionPath: string) {
     const normalized = collectionPath.replace(/^\/+|\/+$/g, '');
 
-    return {
+    const createQuery = (filters: Array<{ field: string; op: string; value: any }> = [], limitVal?: number) => ({
       doc: (id: string) => this.doc(`${normalized}/${id}`),
+      where: (field: string, op: string, value: any) => {
+        return createQuery([...filters, { field, op, value }], limitVal);
+      },
+      limit: (n: number) => {
+        return createQuery(filters, n);
+      },
       get: async (): Promise<{ docs: MockDocSnapshot[] }> => {
         this.checkFailure('collection.get');
         const prefix = `${normalized}/`;
@@ -86,39 +92,59 @@ export class InMemoryFirestore {
             const remainder = key.slice(prefix.length);
             // Must be immediate child, not sub-collection
             if (!remainder.includes('/')) {
-              docs.push({
-                id: remainder,
-                exists: true,
-                data: () => JSON.parse(JSON.stringify(val)),
-                ref: this.doc(key),
-              });
-            }
-          }
-        }
-        return { docs };
-      },
-      limit: (n: number) => ({
-        get: async (): Promise<{ docs: MockDocSnapshot[] }> => {
-          this.checkFailure('collection.limit.get');
-          const prefix = `${normalized}/`;
-          const docs: MockDocSnapshot[] = [];
-          for (const [key, val] of this.store.entries()) {
-            if (key.startsWith(prefix)) {
-              const remainder = key.slice(prefix.length);
-              if (!remainder.includes('/')) {
+              let match = true;
+              for (const filter of filters) {
+                if (filter.op === '==' && val?.[filter.field] !== filter.value) {
+                  match = false;
+                  break;
+                }
+              }
+              if (match) {
                 docs.push({
                   id: remainder,
                   exists: true,
                   data: () => JSON.parse(JSON.stringify(val)),
                   ref: this.doc(key),
                 });
-                if (docs.length >= n) break;
+                if (limitVal && docs.length >= limitVal) break;
               }
             }
           }
-          return { docs };
-        },
-      }),
+        }
+        return { docs };
+      },
+    });
+
+    return createQuery();
+  }
+
+  public batch() {
+    const operations: Array<() => Promise<void>> = [];
+    return {
+      set: (docRef: any, data: any, options?: { merge?: boolean }) => {
+        operations.push(async () => {
+          await docRef.set(data, options);
+        });
+        return this;
+      },
+      update: (docRef: any, patch: any) => {
+        operations.push(async () => {
+          await docRef.update(patch);
+        });
+        return this;
+      },
+      delete: (docRef: any) => {
+        operations.push(async () => {
+          await docRef.delete();
+        });
+        return this;
+      },
+      commit: async (): Promise<void> => {
+        this.checkFailure('batch.commit');
+        for (const op of operations) {
+          await op();
+        }
+      },
     };
   }
 
