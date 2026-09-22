@@ -515,11 +515,34 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
       {/* Connected Accounts Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {accounts.map((acc) => {
-          const status = accountStatusOverrides[acc.id] || (isSyncing ? 'Syncing' : acc.status);
-          const isError = status.toLowerCase() === 'error';
-          const isNeedsReauth = status.toLowerCase().includes('reauth');
-          const isSync = status.toLowerCase() === 'syncing';
-          const isConnected = status.toLowerCase() === 'connected' || status.toLowerCase() === 'active';
+          const rawStatus = (accountStatusOverrides[acc.id] || (isSyncing ? 'Syncing' : acc.status) || 'Connected').toLowerCase();
+          let displayStatus = 'Connected';
+          let statusBadgeClass = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+          let statusDotClass = 'bg-emerald-400 animate-pulse';
+
+          if (rawStatus === 'syncing') {
+            displayStatus = 'Syncing';
+            statusBadgeClass = 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20';
+            statusDotClass = 'bg-indigo-400 animate-ping';
+          } else if (rawStatus === 'queued' || rawStatus.includes('queue')) {
+            displayStatus = 'Sync queued';
+            statusBadgeClass = 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+            statusDotClass = 'bg-blue-400';
+          } else if (rawStatus.includes('reauth') || rawStatus === 'needs_reauth' || rawStatus === 'reauthorization_required') {
+            displayStatus = 'Reauthorization required';
+            statusBadgeClass = 'bg-amber-500/10 text-amber-300 border-amber-500/20';
+            statusDotClass = 'bg-amber-400';
+          } else if (rawStatus === 'error' || rawStatus === 'failed' || rawStatus.includes('fail')) {
+            displayStatus = 'Sync failed';
+            statusBadgeClass = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+            statusDotClass = 'bg-rose-400';
+          } else if (rawStatus === 'connected' || rawStatus === 'synced' || rawStatus === 'active') {
+            displayStatus = acc.lastSyncedAt ? 'Synced' : 'Connected';
+            statusBadgeClass = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+            statusDotClass = 'bg-emerald-400 animate-pulse';
+          }
+
+          const isSync = rawStatus === 'syncing';
           const isOutlook = acc.provider === 'outlook';
 
           return (
@@ -548,28 +571,10 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 {/* Connection Status Badge */}
                 <div className="flex items-center gap-1.5">
                   <span
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold font-mono uppercase flex items-center gap-1 ${
-                      isConnected
-                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                        : isSync
-                        ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
-                        : isNeedsReauth
-                        ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
-                        : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                    }`}
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold font-mono uppercase flex items-center gap-1 border ${statusBadgeClass}`}
                   >
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full ${
-                        isConnected
-                          ? 'bg-emerald-400 animate-pulse'
-                          : isSync
-                          ? 'bg-indigo-400 animate-ping'
-                          : isNeedsReauth
-                          ? 'bg-amber-400'
-                          : 'bg-rose-400'
-                      }`}
-                    />
-                    <span>{status}</span>
+                    <span className={`w-1.5 h-1.5 rounded-full ${statusDotClass}`} />
+                    <span>{displayStatus}</span>
                   </span>
                 </div>
               </div>

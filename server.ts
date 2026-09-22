@@ -314,13 +314,23 @@ async function startServer() {
       }
 
       if (account.provider === 'gmail') {
+        if (isSyncJobRunning(uid, account.id)) {
+          const syncState = await FirestoreDb.getSyncState(uid, account.id);
+          return res.status(409).json({
+            success: false,
+            code: 'SYNC_ALREADY_IN_PROGRESS',
+            message: `A synchronization job is already running for ${account.emailAddress}.`,
+            syncState,
+          });
+        }
         const fullSync = req.body?.fullSync === true;
         const maxDays = typeof req.body?.maxDays === 'number' ? req.body.maxDays : 90;
         const result = await syncGmailAccount(uid, account.id, { fullSync, maxDays });
-        return res.json({
-          success: result.status === 'success',
+        const isSuccess = result.status === 'success' || result.status === 'completed';
+        return res.status(isSuccess ? 200 : (result.status === 'reauthorization_required' ? 401 : 400)).json({
+          success: isSuccess,
           result,
-          message: result.status === 'success'
+          message: isSuccess
             ? `Successfully synchronized ${result.emailsPersisted} message(s).`
             : (result.error || 'Sync encountered an issue'),
         });
@@ -348,11 +358,21 @@ async function startServer() {
       }
 
       if (account.provider === 'gmail') {
+        if (isSyncJobRunning(uid, account.id)) {
+          const syncState = await FirestoreDb.getSyncState(uid, account.id);
+          return res.status(409).json({
+            success: false,
+            code: 'SYNC_ALREADY_IN_PROGRESS',
+            message: `A synchronization job is already running for ${account.emailAddress}.`,
+            syncState,
+          });
+        }
         const result = await syncGmailAccount(uid, account.id, { fullSync: true });
-        return res.json({
-          success: result.status === 'success',
+        const isSuccess = result.status === 'success' || result.status === 'completed';
+        return res.status(isSuccess ? 200 : (result.status === 'reauthorization_required' ? 401 : 400)).json({
+          success: isSuccess,
           result,
-          message: result.status === 'success'
+          message: isSuccess
             ? `Full resynchronization completed. ${result.emailsPersisted} message(s) processed.`
             : (result.error || 'Resync encountered an issue'),
         });

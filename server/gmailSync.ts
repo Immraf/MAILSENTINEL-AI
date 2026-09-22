@@ -39,8 +39,10 @@ export interface GmailSyncResult {
   duplicatesSkipped: number;
   newHistoryId?: string;
   durationMs: number;
-  status: 'success' | 'error' | 'reauthorization_required';
+  status: 'success' | 'completed' | 'failed' | 'error' | 'in_progress' | 'reauthorization_required';
   error?: string;
+  message?: string;
+  syncState?: any;
 }
 
 // In-memory mutex map to ensure background sync jobs are single-flight per account
@@ -279,6 +281,7 @@ export async function syncGmailAccount(
   const jobKey = `${userId}:${accountId}`;
 
   if (runningSyncJobs.has(jobKey)) {
+    const existingState = await FirestoreDb.getSyncState(userId, accountId);
     return {
       accountId,
       userId,
@@ -286,7 +289,8 @@ export async function syncGmailAccount(
       emailsPersisted: 0,
       duplicatesSkipped: 0,
       durationMs: 0,
-      status: 'success',
+      status: 'in_progress' as any,
+      error: 'A synchronization job is already running for this account.',
     };
   }
 
@@ -427,7 +431,7 @@ export async function syncGmailAccount(
     const now = new Date().toISOString();
 
     await FirestoreDb.updateSyncState(userId, account.id, {
-      status: 'idle',
+      status: 'completed',
       progressPercent: 100,
       syncedCount: totalEmails,
       messagesSynced: emailsPersisted,
@@ -457,19 +461,19 @@ export async function syncGmailAccount(
       duplicatesSkipped,
       newHistoryId: latestHistoryId,
       durationMs: Date.now() - startTime,
-      status: 'success',
+      status: 'completed',
     };
   } catch (err: any) {
     console.error(`Gmail sync error for account ${accountId}:`, err);
     await FirestoreDb.updateSyncState(userId, account.id, {
-      status: 'error',
+      status: 'failed',
       errorMessage: err.message || 'Gmail sync failed',
       error: err.message || 'Gmail sync failed',
-    });
+    }).catch(() => {});
     await FirestoreDb.updateAccount(userId, account.id, {
       status: 'Error',
       errorMessage: err.message || 'Gmail sync failed',
-    });
+    }).catch(() => {});
 
     return {
       accountId,
@@ -478,7 +482,7 @@ export async function syncGmailAccount(
       emailsPersisted: 0,
       duplicatesSkipped: 0,
       durationMs: Date.now() - startTime,
-      status: 'error',
+      status: 'failed',
       error: err.message,
     };
   } finally {
@@ -658,6 +662,7 @@ export async function persistGmailMessage(
     replyTo: replyToHeader || undefined,
     subject,
     snippet: bodySnippet,
+    body: bodyText || bodySnippet,
     textBody: bodyText,
     htmlBody: bodyHtml,
     receivedAt,
@@ -691,21 +696,33 @@ export async function persistGmailMessage(
   // 1. Save normalized email to Firestore
   await FirestoreDb.saveEmail(userId, emailRecord);
 
-  // 2. Save thread document to Firestore
+  // 2. Save thread document to Firestore with strict thread consistency
   const threadId = msg.threadId || msg.id;
+  const existingThread = (await FirestoreDb.getThreadById(userId, threadId, account.id)) as any;
+  const messageIds: string[] = existingThread
+    ? Array.from(new Set([...(existingThread.messageIds || []), canonicalId]))
+    : [canonicalId];
+  const participants: string[] = existingThread
+    ? Array.from(new Set([...(existingThread.participants || []), senderEmail, ...to]))
+    : Array.from(new Set([senderEmail, ...to]));
+  const existingDate = existingThread?.latestMessageAt || existingThread?.lastMessageDate;
+  const isNewer = !existingThread || !existingDate || new Date(receivedAt).getTime() >= new Date(existingDate).getTime();
+  const latestMessageAt = isNewer ? receivedAt : existingDate;
+  const snippet = isNewer ? bodySnippet : (existingThread.snippet || bodySnippet);
+
   const threadRecord: EmailThread = {
     id: threadId,
     userId,
     accountId: account.id,
     provider: 'gmail',
     providerThreadId: threadId,
-    subject,
-    messageCount: 1,
-    participants: [senderEmail, ...to],
-    latestMessageAt: receivedAt,
-    snippet: bodySnippet,
-    messageIds: [canonicalId],
-    createdAt: now,
+    subject: existingThread?.subject || subject,
+    messageCount: messageIds.length,
+    participants,
+    latestMessageAt,
+    snippet,
+    messageIds,
+    createdAt: existingThread?.createdAt || now,
     updatedAt: now,
   };
   await FirestoreDb.saveThread(userId, account.id, threadRecord);

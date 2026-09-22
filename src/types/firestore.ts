@@ -26,6 +26,7 @@ export interface FirestoreUserDoc {
   email: string;
   displayName?: string;
   photoURL?: string;
+  role?: string;
   emailVerified?: boolean;
   provider?: string;
   createdAt: string;
@@ -265,13 +266,17 @@ export interface FirestoreEmailThreadDoc {
   id: string; // threadId
   userId: string;
   accountId: string;
+  provider?: string;
+  providerThreadId?: string;
   subject: string;
   messageCount: number;
   snippet: string;
   lastMessageDate: string;
+  latestMessageAt?: string;
   participants: string[];
-  hasActionRequired: boolean;
-  urgency: 'low' | 'normal' | 'urgent' | 'critical';
+  messageIds?: string[];
+  hasActionRequired?: boolean;
+  urgency?: 'low' | 'normal' | 'urgent' | 'critical';
   createdAt: string;
   updatedAt: string;
 }

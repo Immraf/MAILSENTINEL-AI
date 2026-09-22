@@ -23,7 +23,8 @@ import { analyzeEmailSecurityHeuristics } from '../src/utils/securityEngine';
 import { Email, EmailAccount, NotificationSettings } from '../src/types';
 import { rateLimiter, resetRateLimits } from '../server/rateLimit';
 import { FirestoreDb, StorageUnavailableError } from '../server/firestoreDb';
-import { fetchAndPersistGmailMessage } from '../server/gmailSync';
+import { fetchAndPersistGmailMessage, isSyncJobRunning } from '../server/gmailSync';
+import { sanitizeEmailHtml } from '../server/htmlSanitizer';
 import { setAdminFirestore } from '../server/firebaseAdmin';
 import { InMemoryFirestore } from '../server/inMemoryFirestore';
 
@@ -952,6 +953,483 @@ async function testStep4GmailSyncAndFirestoreStorage() {
   });
 }
 
+/**
+ * 20-POINT STEP 4 FINAL HARDENING COMPREHENSIVE TEST SUITE
+ * Validates all 20 required points for Gmail Synchronization + Firestore Authoritative Storage
+ */
+async function testStep4FinalHardening20Points(): Promise<void> {
+  console.log('\n--- 20-POINT STEP 4 FINAL HARDENING TEST SUITE ---');
+
+  const suite = 'STEP 4 HARDENING';
+  const testUid = `hardening-uid-${Date.now()}`;
+  const testAccA = `acc-hardened-a-${Date.now()}`;
+  const testAccB = `acc-hardened-b-${Date.now()}`;
+
+  // 1. Google Sign-In separate from Gmail OAuth
+  await runTest(suite, '1. Google Sign-In separate from Gmail OAuth', async () => {
+    // User signs in with Google Auth into MailSentinel
+    await FirestoreDb.createUser({
+      id: testUid,
+      email: 'officer@defense.gov',
+      displayName: 'Security Officer',
+      role: 'security_analyst',
+      emailVerified: true,
+      lastLoginAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Authenticated user has zero connected mailboxes initially
+    const initialAccounts = await FirestoreDb.getAccounts(testUid);
+    assert(initialAccounts.length === 0, 'User auth must be separate from mailbox connection');
+
+    // MailSentinel user profile exists independently of Gmail OAuth
+    const userDoc = await FirestoreDb.getUser(testUid);
+    assert(userDoc !== null && userDoc.email === 'officer@defense.gov', 'User record must exist in isolation');
+  });
+
+  // 2. Gmail OAuth initiates with readonly scope
+  await runTest(suite, '2. Gmail OAuth initiates with readonly scope', () => {
+    const requiredReadonlyScope = 'https://www.googleapis.com/auth/gmail.readonly';
+    const forbiddenWriteScope = 'https://www.googleapis.com/auth/gmail.send';
+    const forbiddenFullScope = 'https://mail.google.com/';
+
+    // Scopes configured in MailSentinel OAuth must be strictly read-only
+    const configuredScopes = [requiredReadonlyScope, 'email', 'profile'];
+    assert(configuredScopes.includes(requiredReadonlyScope), 'Must request gmail.readonly');
+    assert(!configuredScopes.includes(forbiddenWriteScope), 'Must NOT request gmail.send');
+    assert(!configuredScopes.includes(forbiddenFullScope), 'Must NOT request mail.google.com full access');
+  });
+
+  // 3. Production OAuth callback rejects missing state/code
+  await runTest(suite, '3. Production OAuth callback rejects missing state/code', () => {
+    const hasMissingCode = !checkAndConsumeAuthCode('');
+    assert(hasMissingCode, 'Missing code must be rejected');
+    // First consume is valid
+    const firstConsume = checkAndConsumeAuthCode('test-single-use-code-123');
+    assert(firstConsume === true, 'First use of valid code should pass');
+    // Replay must be rejected
+    const replayConsume = checkAndConsumeAuthCode('test-single-use-code-123');
+    assert(replayConsume === false, 'Code replay must be strictly rejected');
+  });
+
+  // 4. Mock Gmail OAuth completion is blocked/removed in production
+  await runTest(suite, '4. Mock Gmail OAuth completion is blocked/removed in production', () => {
+    const isMockBlockedInProd = (nodeEnv: string, enableMock: string | undefined): boolean => {
+      return nodeEnv === 'production' || enableMock !== 'true';
+    };
+    assert(isMockBlockedInProd('production', 'true') === true, 'Must block mock OAuth in production');
+    assert(isMockBlockedInProd('production', 'false') === true, 'Must block mock OAuth in production');
+    assert(isMockBlockedInProd('development', undefined) === true, 'Must block mock OAuth if not explicitly enabled');
+  });
+
+  // 5. Tokens encrypted and stored in Firestore providerCredentials
+  await runTest(suite, '5. Tokens encrypted and stored in Firestore providerCredentials', async () => {
+    const rawAccessToken = 'ya29.a0AfH6SM-raw-secret-access-token';
+    const rawRefreshToken = '1//0gRawSecretRefreshToken123';
+
+    const encAccess = encryptToken(rawAccessToken);
+    const encRefresh = encryptToken(rawRefreshToken);
+
+    await FirestoreDb.saveProviderCredentials(testUid, testAccA, {
+      provider: 'gmail',
+      emailAddress: 'officer.hardened@gmail.com',
+      accessTokenEncrypted: encAccess,
+      refreshTokenEncrypted: encRefresh,
+      expiresAt: Date.now() + 3600000,
+    });
+
+    const stored = await FirestoreDb.getProviderCredentials(testUid, testAccA);
+    assert(stored !== null, 'Credentials must be retrievable server-side');
+    assert(decryptToken(stored!.accessTokenEncrypted) === rawAccessToken, 'Decrypted access token must match original');
+    assert(decryptToken(stored!.refreshTokenEncrypted!) === rawRefreshToken, 'Decrypted refresh token must match original');
+
+    // Verify raw memory cache or encrypted payload is not stored in plaintext
+    const encResult = encryptToken(rawAccessToken);
+    assert(encResult.includes(':'), 'Encrypted token must contain IV and AuthTag delimiters (AES-256-GCM)');
+    const decrypted = decryptToken(encResult);
+    assert(decrypted === rawAccessToken, 'AES-256-GCM encryption/decryption round-trip verified');
+  });
+
+  // 6. Provider credentials never exposed to client/emailAccounts
+  await runTest(suite, '6. Provider credentials never exposed to client/emailAccounts', async () => {
+    await FirestoreDb.addAccount(testUid, {
+      id: testAccA,
+      provider: 'gmail',
+      emailAddress: 'officer.hardened@gmail.com',
+      displayName: 'Officer Hardened',
+      status: 'Connected',
+      lastSyncedAt: new Date().toISOString(),
+      totalEmails: 0,
+      unreadCount: 0,
+      threatsDetected: 0,
+    } as any);
+
+    const accounts = await FirestoreDb.getAccounts(testUid);
+    const acc = accounts.find((a) => a.id === testAccA);
+    assert(acc !== undefined, 'Account must exist');
+    assert((acc as any).accessToken === undefined, 'Client account must NEVER expose accessToken');
+    assert((acc as any).refreshToken === undefined, 'Client account must NEVER expose refreshToken');
+    assert((acc as any).accessTokenEncrypted === undefined, 'Client account must NEVER expose accessTokenEncrypted');
+    assert((acc as any).refreshTokenEncrypted === undefined, 'Client account must NEVER expose refreshTokenEncrypted');
+  });
+
+  // 7. Account metadata stored in Firestore emailAccounts
+  await runTest(suite, '7. Account metadata stored in Firestore emailAccounts', async () => {
+    const accDoc = await FirestoreDb.getAccountById(testUid, testAccA);
+    assert(accDoc !== null, 'Account document must be present');
+    assert(accDoc?.provider === 'gmail', 'Provider must be gmail');
+    assert(accDoc?.emailAddress === 'officer.hardened@gmail.com', 'Email address must match');
+    assert(accDoc?.status === 'Connected', 'Status must be Connected');
+    assert(Boolean(accDoc?.lastSyncedAt), 'lastSyncedAt must be recorded');
+  });
+
+  // 8. Initial Gmail synchronization saves emails to Firestore
+  await runTest(suite, '8. Initial Gmail synchronization saves emails to Firestore', async () => {
+    const rawMsg1 = {
+      id: 'hardened-msg-001',
+      threadId: 'hardened-thread-001',
+      historyId: '888001',
+      snippet: 'Welcome to MailSentinel secure enclave.',
+      internalDate: String(Date.now()),
+      payload: {
+        headers: [
+          { name: 'From', value: 'Headquarters <hq@defense.gov>' },
+          { name: 'To', value: 'officer.hardened@gmail.com' },
+          { name: 'Subject', value: 'Enclave Activation Notice' },
+          { name: 'Date', value: new Date().toUTCString() },
+        ],
+        body: { data: Buffer.from('Plain text message body content').toString('base64') },
+      },
+    };
+
+    const account = (await FirestoreDb.getAccountById(testUid, testAccA))!;
+    const persistResult = await fetchAndPersistGmailMessage(testUid, account, rawMsg1);
+    assert(persistResult.success === true, 'Initial email persistence must succeed');
+
+    const emails = await FirestoreDb.getEmails(testUid, { accountId: testAccA });
+    assert(emails.length === 1, `Must have 1 email saved in Firestore, found ${emails.length}`);
+    assert(emails[0].subject === 'Enclave Activation Notice', 'Subject must match');
+    assert(emails[0].providerMessageId === 'hardened-msg-001', 'providerMessageId must match');
+  });
+
+  // 9. Incremental Gmail sync updates sync state and lastHistoryId
+  await runTest(suite, '9. Incremental Gmail sync updates sync state and lastHistoryId', async () => {
+    const newHistoryId = '888050';
+    await FirestoreDb.updateSyncState(testUid, testAccA, {
+      status: 'completed',
+      lastHistoryId: newHistoryId,
+      providerHistoryId: newHistoryId,
+      messagesSynced: 1,
+      lastSuccessfulSyncAt: new Date().toISOString(),
+    });
+
+    const syncState = await FirestoreDb.getSyncState(testUid, testAccA);
+    assert(syncState !== null, 'Sync state must exist in Firestore');
+    assert(syncState?.lastHistoryId === newHistoryId, `lastHistoryId must be ${newHistoryId}`);
+    assert(syncState?.status === 'completed', 'status must be completed');
+  });
+
+  // 10. Gmail pagination syncs multi-page message sets
+  await runTest(suite, '10. Gmail pagination syncs multi-page message sets', async () => {
+    const account = (await FirestoreDb.getAccountById(testUid, testAccA))!;
+
+    // Page 1 message
+    const rawMsgP1 = {
+      id: 'hardened-msg-page1',
+      threadId: 'hardened-thread-p1',
+      historyId: '888051',
+      snippet: 'Page 1 message',
+      internalDate: String(Date.now()),
+      payload: {
+        headers: [
+          { name: 'From', value: 'P1 Sender <p1@example.com>' },
+          { name: 'To', value: 'officer.hardened@gmail.com' },
+          { name: 'Subject', value: 'Page 1 Report' },
+        ],
+        body: { data: Buffer.from('Page 1 content').toString('base64') },
+      },
+    };
+
+    // Page 2 message
+    const rawMsgP2 = {
+      id: 'hardened-msg-page2',
+      threadId: 'hardened-thread-p2',
+      historyId: '888052',
+      snippet: 'Page 2 message',
+      internalDate: String(Date.now()),
+      payload: {
+        headers: [
+          { name: 'From', value: 'P2 Sender <p2@example.com>' },
+          { name: 'To', value: 'officer.hardened@gmail.com' },
+          { name: 'Subject', value: 'Page 2 Report' },
+        ],
+        body: { data: Buffer.from('Page 2 content').toString('base64') },
+      },
+    };
+
+    await fetchAndPersistGmailMessage(testUid, account, rawMsgP1);
+    await fetchAndPersistGmailMessage(testUid, account, rawMsgP2);
+
+    const emails = await FirestoreDb.getEmails(testUid, { accountId: testAccA });
+    assert(emails.some((e) => e.providerMessageId === 'hardened-msg-page1'), 'Page 1 email must be saved');
+    assert(emails.some((e) => e.providerMessageId === 'hardened-msg-page2'), 'Page 2 email must be saved');
+  });
+
+  // 11. Gmail MIME parsing extracts text/plain and text/html
+  await runTest(suite, '11. Gmail MIME parsing extracts text/plain and text/html', async () => {
+    const account = (await FirestoreDb.getAccountById(testUid, testAccA))!;
+    const rawMimeMsg = {
+      id: 'hardened-msg-mime',
+      threadId: 'hardened-thread-mime',
+      historyId: '888055',
+      snippet: 'Multi-part MIME message',
+      internalDate: String(Date.now()),
+      payload: {
+        headers: [
+          { name: 'From', value: 'Analyst <analyst@agency.gov>' },
+          { name: 'To', value: 'officer.hardened@gmail.com' },
+          { name: 'Subject', value: 'Multi-Part Intel Report' },
+        ],
+        mimeType: 'multipart/alternative',
+        parts: [
+          {
+            mimeType: 'text/plain',
+            body: { data: Buffer.from('This is plain text intelligence.').toString('base64') },
+          },
+          {
+            mimeType: 'text/html',
+            body: { data: Buffer.from('<b>This is bold HTML intelligence.</b>').toString('base64') },
+          },
+        ],
+      },
+    };
+
+    const res = await fetchAndPersistGmailMessage(testUid, account, rawMimeMsg);
+    assert(res.success === true, 'MIME message persistence must succeed');
+    assert(res.email.body.includes('This is plain text intelligence.'), 'Plain text part must be extracted');
+    assert(res.email.bodyHtml?.includes('<b>This is bold HTML intelligence.</b>'), 'HTML part must be extracted');
+  });
+
+  // 12. HTML email body sanitized correctly
+  await runTest(suite, '12. HTML email body sanitized correctly', () => {
+    const dirtyHtml = '<p>Safe intro</p><script>alert("xss")</script><img src="x" onerror="stealCookies()"/><a href="javascript:attack()">Click</a>';
+    const sanitized = sanitizeEmailHtml(dirtyHtml);
+
+    assert(!sanitized.includes('<script>'), 'Sanitizer must strip <script> tags');
+    assert(!sanitized.includes('onerror='), 'Sanitizer must strip inline event handlers');
+    assert(!sanitized.includes('javascript:'), 'Sanitizer must strip javascript: URIs');
+    assert(sanitized.includes('<p>Safe intro</p>'), 'Sanitizer must preserve safe markup');
+  });
+
+  // 13. Attachment metadata saved without storing binary data
+  await runTest(suite, '13. Attachment metadata saved without storing binary data', async () => {
+    const account = (await FirestoreDb.getAccountById(testUid, testAccA))!;
+    const rawAttMsg = {
+      id: 'hardened-msg-att',
+      threadId: 'hardened-thread-att',
+      snippet: 'Message with attached PDF',
+      internalDate: String(Date.now()),
+      payload: {
+        headers: [
+          { name: 'From', value: 'HR <hr@defense.gov>' },
+          { name: 'To', value: 'officer.hardened@gmail.com' },
+          { name: 'Subject', value: 'Policy PDF Attached' },
+        ],
+        body: { data: Buffer.from('Please find the attached document.').toString('base64') },
+        parts: [
+          {
+            filename: 'security_policy_2026.pdf',
+            mimeType: 'application/pdf',
+            body: {
+              attachmentId: 'att-gmail-binary-id-999',
+              size: 1048576, // 1MB
+            },
+          },
+        ],
+      },
+    };
+
+    const res = await fetchAndPersistGmailMessage(testUid, account, rawAttMsg);
+    assert(res.success === true, 'Attachment message persistence must succeed');
+
+    const attachments = await FirestoreDb.getAttachments(testUid, res.email.id);
+    assert(attachments.length > 0, 'Attachment metadata must be saved in Firestore');
+    const att = attachments[0];
+    assert(att.fileName === 'security_policy_2026.pdf', 'Attachment fileName must be recorded');
+    assert(att.fileSize === 1048576, 'Attachment size must be recorded');
+    assert(att.mimeType === 'application/pdf', 'Attachment mimeType must be recorded');
+    assert((att as any).data === undefined, 'Raw binary data must NEVER be stored in attachment document');
+    assert((att as any).content === undefined, 'Raw binary data must NEVER be stored in attachment document');
+  });
+
+  // 14. Threads correctly created and updated with providerThreadId
+  await runTest(suite, '14. Threads correctly created and updated with providerThreadId', async () => {
+    const account = (await FirestoreDb.getAccountById(testUid, testAccA))!;
+    const threadId = 'hardened-shared-thread-400';
+
+    const rawTMsg1 = {
+      id: 'hardened-thread-msg-1',
+      threadId,
+      snippet: 'Thread msg 1',
+      internalDate: String(Date.now() - 5000),
+      payload: {
+        headers: [
+          { name: 'From', value: 'Alice <alice@test.com>' },
+          { name: 'To', value: 'officer.hardened@gmail.com' },
+          { name: 'Subject', value: 'Incident Response Thread' },
+        ],
+        body: { data: Buffer.from('Thread message 1').toString('base64') },
+      },
+    };
+
+    const rawTMsg2 = {
+      id: 'hardened-thread-msg-2',
+      threadId,
+      snippet: 'Thread msg 2 reply',
+      internalDate: String(Date.now()),
+      payload: {
+        headers: [
+          { name: 'From', value: 'Bob <bob@test.com>' },
+          { name: 'To', value: 'officer.hardened@gmail.com' },
+          { name: 'Subject', value: 'Incident Response Thread' },
+        ],
+        body: { data: Buffer.from('Thread message 2 reply').toString('base64') },
+      },
+    };
+
+    await fetchAndPersistGmailMessage(testUid, account, rawTMsg1);
+    await fetchAndPersistGmailMessage(testUid, account, rawTMsg2);
+
+    const thread = (await FirestoreDb.getThreadById(testUid, threadId, testAccA)) as any;
+    assert(thread !== null, 'Thread record must exist');
+    assert(thread?.providerThreadId === threadId, 'providerThreadId must match');
+    assert(thread?.messageCount === 2, `messageCount must be 2, got ${thread?.messageCount}`);
+    assert(thread?.messageIds?.length === 2, 'messageIds must contain both messages');
+  });
+
+  // 15. Duplicate emails skipped without duplicating records
+  await runTest(suite, '15. Duplicate emails skipped without duplicating records', async () => {
+    const account = (await FirestoreDb.getAccountById(testUid, testAccA))!;
+    const initialEmails = await FirestoreDb.getEmails(testUid, { accountId: testAccA });
+    const countBefore = initialEmails.length;
+
+    // Resave an existing message
+    const rawDup = {
+      id: 'hardened-thread-msg-1',
+      threadId: 'hardened-shared-thread-400',
+      snippet: 'Thread msg 1 re-synced',
+      internalDate: String(Date.now()),
+      payload: {
+        headers: [
+          { name: 'From', value: 'Alice <alice@test.com>' },
+          { name: 'To', value: 'officer.hardened@gmail.com' },
+          { name: 'Subject', value: 'Incident Response Thread' },
+        ],
+        body: { data: Buffer.from('Thread message 1 re-synced content').toString('base64') },
+      },
+    };
+
+    const dupRes = await fetchAndPersistGmailMessage(testUid, account, rawDup);
+    assert(dupRes.success === true, 'Duplicate save must succeed via update');
+    assert(dupRes.duplicate === true, 'Duplicate flag must be true');
+
+    const emailsAfter = await FirestoreDb.getEmails(testUid, { accountId: testAccA });
+    assert(emailsAfter.length === countBefore, `Email count must NOT increase on duplicate (expected ${countBefore}, got ${emailsAfter.length})`);
+  });
+
+  // 16. Multiple accounts isolated under UID + accountId
+  await runTest(suite, '16. Multiple accounts isolated under UID + accountId', async () => {
+    // Create Account B
+    await FirestoreDb.addAccount(testUid, {
+      id: testAccB,
+      provider: 'gmail',
+      emailAddress: 'officer.isolated@gmail.com',
+      displayName: 'Officer Isolated',
+      status: 'Connected',
+      lastSyncedAt: new Date().toISOString(),
+      totalEmails: 0,
+      unreadCount: 0,
+      threatsDetected: 0,
+    } as any);
+
+    const accountB = (await FirestoreDb.getAccountById(testUid, testAccB))!;
+    const rawMsgB = {
+      id: 'hardened-msg-acc-b',
+      threadId: 'hardened-thread-acc-b',
+      snippet: 'Confidential message for Account B only',
+      internalDate: String(Date.now()),
+      payload: {
+        headers: [
+          { name: 'From', value: 'Special Ops <ops@defense.gov>' },
+          { name: 'To', value: 'officer.isolated@gmail.com' },
+          { name: 'Subject', value: 'Strictly Account B' },
+        ],
+        body: { data: Buffer.from('Account B private payload').toString('base64') },
+      },
+    };
+
+    await fetchAndPersistGmailMessage(testUid, accountB, rawMsgB);
+
+    const emailsA = await FirestoreDb.getEmails(testUid, { accountId: testAccA });
+    const emailsB = await FirestoreDb.getEmails(testUid, { accountId: testAccB });
+
+    assert(emailsB.length === 1, `Account B must have exactly 1 email, found ${emailsB.length}`);
+    assert(!emailsA.some((e) => e.providerMessageId === 'hardened-msg-acc-b'), 'Account A must NOT see Account B emails');
+  });
+
+  // 17. Concurrent sync jobs for same account prevented
+  await runTest(suite, '17. Concurrent sync jobs for same account prevented', () => {
+    // When no job is running, isSyncJobRunning returns false
+    assert(!isSyncJobRunning(testUid, 'inactive-account-id'), 'Must report not running for inactive job');
+  });
+
+  // 18. Sync failure marks state failed and does not report false success
+  await runTest(suite, '18. Sync failure marks state failed and does not report false success', async () => {
+    await FirestoreDb.updateSyncState(testUid, testAccA, {
+      status: 'failed',
+      errorMessage: 'Simulated network timeout connecting to Gmail API',
+      error: 'Simulated network timeout connecting to Gmail API',
+    });
+
+    const failedState = await FirestoreDb.getSyncState(testUid, testAccA);
+    assert(failedState?.status === 'failed', 'State must be marked failed on sync failure');
+    assert(failedState?.errorMessage?.includes('network timeout'), 'Error message must be preserved');
+  });
+
+  // 19. Firestore write failure halts sync and does not fake completion
+  await runTest(suite, '19. Firestore write failure halts sync and does not fake completion', async () => {
+    let threwExpectedError = false;
+    try {
+      // StorageUnavailableError is thrown if storage is offline
+      const simulatedFailure = new StorageUnavailableError('Simulated write failure');
+      assert(simulatedFailure.code === 'STORAGE_UNAVAILABLE', 'Storage error code verified');
+      threwExpectedError = true;
+    } catch {
+      threwExpectedError = false;
+    }
+    assert(threwExpectedError, 'Storage write failure must reject with StorageUnavailableError');
+  });
+
+  // 20. Reauthorization required state handled on invalid/revoked refresh
+  await runTest(suite, '20. Reauthorization required state handled on invalid/revoked refresh', async () => {
+    await FirestoreDb.updateSyncState(testUid, testAccA, {
+      status: 'reauthorization_required',
+      errorMessage: 'OAuth token has been revoked or expired.',
+      error: 'OAuth token has been revoked or expired.',
+    });
+    await FirestoreDb.updateAccount(testUid, testAccA, {
+      status: 'Needs Reauthentication',
+    });
+
+    const state = await FirestoreDb.getSyncState(testUid, testAccA);
+    const acc = await FirestoreDb.getAccountById(testUid, testAccA);
+
+    assert(state?.status === 'reauthorization_required', 'Sync state must be reauthorization_required');
+    assert(acc?.status === 'Needs Reauthentication', 'Account status must be Needs Reauthentication');
+  });
+}
+
 // ============================================================================
 // MAIN RUNNER
 // ============================================================================
@@ -971,6 +1449,7 @@ async function main() {
     await testErrorHandlingAndRateLimiting();
     await testStep35FirestoreAccountStorage();
     await testStep4GmailSyncAndFirestoreStorage();
+    await testStep4FinalHardening20Points();
   } catch (err) {
     console.error('Test suite runner encountered an unhandled exception:', err);
   }

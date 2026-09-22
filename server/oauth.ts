@@ -15,6 +15,9 @@ export const oauthRouter = express.Router();
 const consumedAuthCodes = new Map<string, number>();
 
 export function checkAndConsumeAuthCode(code: string): boolean {
+  if (!code || typeof code !== 'string' || !code.trim()) {
+    return false;
+  }
   const now = Date.now();
   for (const [c, ts] of consumedAuthCodes.entries()) {
     if (now - ts > 15 * 60 * 1000) consumedAuthCodes.delete(c);
@@ -443,26 +446,18 @@ oauthRouter.get('/gmail/callback', async (req, res) => {
 });
 
 /**
- * Programmatic JSON endpoint for completing OAuth (Used for headless verification and automated tests)
- * Strictly isolated: Rejected in production unless ENABLE_MOCK_OAUTH_TEST === 'true'
+ * Programmatic JSON endpoint for completing OAuth (Used ONLY for automated testing when NODE_ENV === 'test')
+ * Strictly isolated: Not exposed in production or normal operation.
  */
-oauthRouter.post('/gmail/callback-json', async (req, res) => {
-  if (process.env.NODE_ENV === 'production' || process.env.ENABLE_MOCK_OAUTH_TEST !== 'true') {
-    return res.status(403).json({
-      error: {
-        code: 'MOCK_OAUTH_DISABLED',
-        message: 'Mock OAuth endpoints are strictly disabled in production and normal operation.',
-      },
-    });
-  }
+if (process.env.NODE_ENV === 'test' && process.env.ENABLE_MOCK_OAUTH_TEST === 'true') {
+  oauthRouter.post('/gmail/callback-json', async (req, res) => {
+    const { code, state, mockEmail, mockTokens } = req.body;
 
-  const { code, state, mockEmail, mockTokens } = req.body;
-
-  if (!code || !state) {
-    return res.status(400).json({
-      error: { code: 'INVALID_CALLBACK', message: 'Missing authorization code or state parameter.' },
-    });
-  }
+    if (!code || !state) {
+      return res.status(400).json({
+        error: { code: 'INVALID_CALLBACK', message: 'Missing authorization code or state parameter.' },
+      });
+    }
 
   // 1. Validate state
   const oauthRecord = consumeOAuthState(String(state));
@@ -563,6 +558,7 @@ oauthRouter.post('/gmail/callback-json', async (req, res) => {
     res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Server error' } });
   }
 });
+}
 
 // ============================================================================
 // 2. MICROSOFT OUTLOOK / MICROSOFT 365 OAUTH 2.0 FLOW
@@ -830,20 +826,12 @@ oauthRouter.get('/outlook/callback', async (req, res) => {
 });
 
 /**
- * Programmatic JSON endpoint for Outlook OAuth completion
- * Strictly isolated: Rejected in production unless ENABLE_MOCK_OAUTH_TEST === 'true'
+ * Programmatic JSON endpoint for Outlook OAuth completion (Used ONLY for automated testing when NODE_ENV === 'test')
+ * Strictly isolated: Not exposed in production or normal operation.
  */
-oauthRouter.post('/outlook/callback-json', async (req, res) => {
-  if (process.env.NODE_ENV === 'production' || process.env.ENABLE_MOCK_OAUTH_TEST !== 'true') {
-    return res.status(403).json({
-      error: {
-        code: 'MOCK_OAUTH_DISABLED',
-        message: 'Mock OAuth endpoints are strictly disabled in production and normal operation.',
-      },
-    });
-  }
-
-  const { code, state, mockEmail, mockTokens } = req.body;
+if (process.env.NODE_ENV === 'test' && process.env.ENABLE_MOCK_OAUTH_TEST === 'true') {
+  oauthRouter.post('/outlook/callback-json', async (req, res) => {
+    const { code, state, mockEmail, mockTokens } = req.body;
 
   if (!code || !state) {
     return res.status(400).json({
@@ -944,6 +932,7 @@ oauthRouter.post('/outlook/callback-json', async (req, res) => {
     res.status(500).json({ error: { code: 'SERVER_ERROR', message: err?.message || 'Server error' } });
   }
 });
+}
 
 // ============================================================================
 // 3. DISCONNECT & REAUTHENTICATE CONTROLLERS

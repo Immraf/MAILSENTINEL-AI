@@ -45,7 +45,7 @@ import {
   initialSecuritySettings,
   initialRules,
 } from '../src/mockData';
-import { db, loadDatabase, saveDatabase } from './db';
+import { db } from './db';
 
 export class StorageUnavailableError extends Error {
   code = 'STORAGE_UNAVAILABLE';
@@ -582,8 +582,6 @@ export class FirestoreDb {
       deltaToken: patch.deltaToken || prev?.deltaToken,
       updatedAt: now,
     };
-    this.syncStateMemoryCache.set(key, updated);
-
     if (this.canAttemptCloud()) {
       try {
         await Promise.all([
@@ -593,8 +591,11 @@ export class FirestoreDb {
         this.markCloudSuccess();
       } catch (err: any) {
         this.handleCloudError('updateSyncState', userId, err);
+        throw new StorageUnavailableError('Failed to persist sync state to Firestore: storage unavailable', err);
       }
     }
+    // Update cache only upon successful persistence
+    this.syncStateMemoryCache.set(key, updated);
   }
 
   // ==========================================================================
@@ -744,7 +745,23 @@ export class FirestoreDb {
       updatedAt: now,
     };
 
-    // Update memory caches
+    if (this.canAttemptCloud()) {
+      try {
+        const promises: Promise<any>[] = [
+          this.db.doc(`users/${userId}/emails/${email.id}`).set(docData, { merge: true }),
+        ];
+        if (email.accountId) {
+          promises.push(this.db.doc(`users/${userId}/emailAccounts/${email.accountId}/emails/${email.id}`).set(docData, { merge: true }));
+        }
+        await Promise.all(promises);
+        this.markCloudSuccess();
+      } catch (err: any) {
+        this.handleCloudError('saveEmail', userId, err);
+        throw new StorageUnavailableError('Failed to persist email to Firestore: storage unavailable', err);
+      }
+    }
+
+    // Update memory caches only upon confirmed Firestore write
     const userEmails = this.emailsMemoryCache.get(userId) || [];
     const existingIdx = userEmails.findIndex((e) => e.id === email.id || (e.providerMessageId && e.providerMessageId === email.providerMessageId));
     if (existingIdx !== -1) {
@@ -764,21 +781,6 @@ export class FirestoreDb {
         accEmails.unshift(docData);
       }
       this.accountEmailsMemoryCache.set(accKey, accEmails);
-    }
-
-    if (this.canAttemptCloud()) {
-      try {
-        const promises: Promise<any>[] = [
-          this.db.doc(`users/${userId}/emails/${email.id}`).set(docData, { merge: true }),
-        ];
-        if (email.accountId) {
-          promises.push(this.db.doc(`users/${userId}/emailAccounts/${email.accountId}/emails/${email.id}`).set(docData, { merge: true }));
-        }
-        await Promise.all(promises);
-        this.markCloudSuccess();
-      } catch (err: any) {
-        this.handleCloudError('saveEmail', userId, err);
-      }
     }
 
     return docData;
@@ -804,24 +806,7 @@ export class FirestoreDb {
       updatedAt: now,
     };
 
-    // Update memory caches
-    const userEmails = this.emailsMemoryCache.get(userId) || [];
-    const idx = userEmails.findIndex((e) => e.id === emailId);
-    if (idx !== -1) {
-      userEmails[idx] = updated;
-      this.emailsMemoryCache.set(userId, userEmails);
-    }
-
     const targetAccId = accountId || current.accountId;
-    if (targetAccId) {
-      const accKey = `${userId}:${targetAccId}`;
-      const accEmails = this.accountEmailsMemoryCache.get(accKey) || [];
-      const accIdx = accEmails.findIndex((e) => e.id === emailId);
-      if (accIdx !== -1) {
-        accEmails[accIdx] = updated;
-        this.accountEmailsMemoryCache.set(accKey, accEmails);
-      }
-    }
 
     if (this.canAttemptCloud()) {
       try {
@@ -835,6 +820,25 @@ export class FirestoreDb {
         this.markCloudSuccess();
       } catch (err: any) {
         this.handleCloudError('updateEmail', userId, err);
+        throw new StorageUnavailableError('Failed to update email in Firestore: storage unavailable', err);
+      }
+    }
+
+    // Update memory caches
+    const userEmails = this.emailsMemoryCache.get(userId) || [];
+    const idx = userEmails.findIndex((e) => e.id === emailId);
+    if (idx !== -1) {
+      userEmails[idx] = updated;
+      this.emailsMemoryCache.set(userId, userEmails);
+    }
+
+    if (targetAccId) {
+      const accKey = `${userId}:${targetAccId}`;
+      const accEmails = this.accountEmailsMemoryCache.get(accKey) || [];
+      const accIdx = accEmails.findIndex((e) => e.id === emailId);
+      if (accIdx !== -1) {
+        accEmails[accIdx] = updated;
+        this.accountEmailsMemoryCache.set(accKey, accEmails);
       }
     }
 
@@ -843,18 +847,6 @@ export class FirestoreDb {
 
   static async deleteEmail(userId: string, emailId: string, accountId?: string): Promise<boolean> {
     let deleted = false;
-    const userEmails = this.emailsMemoryCache.get(userId) || [];
-    const filteredUser = userEmails.filter((e) => e.id !== emailId);
-    if (filteredUser.length < userEmails.length) {
-      deleted = true;
-      this.emailsMemoryCache.set(userId, filteredUser);
-    }
-
-    if (accountId) {
-      const accKey = `${userId}:${accountId}`;
-      const accEmails = this.accountEmailsMemoryCache.get(accKey) || [];
-      this.accountEmailsMemoryCache.set(accKey, accEmails.filter((e) => e.id !== emailId));
-    }
 
     if (this.canAttemptCloud()) {
       try {
@@ -869,7 +861,21 @@ export class FirestoreDb {
         deleted = true;
       } catch (err: any) {
         this.handleCloudError('deleteEmail', userId, err);
+        throw new StorageUnavailableError('Failed to delete email from Firestore: storage unavailable', err);
       }
+    }
+
+    const userEmails = this.emailsMemoryCache.get(userId) || [];
+    const filteredUser = userEmails.filter((e) => e.id !== emailId);
+    if (filteredUser.length < userEmails.length) {
+      deleted = true;
+      this.emailsMemoryCache.set(userId, filteredUser);
+    }
+
+    if (accountId) {
+      const accKey = `${userId}:${accountId}`;
+      const accEmails = this.accountEmailsMemoryCache.get(accKey) || [];
+      this.accountEmailsMemoryCache.set(accKey, accEmails.filter((e) => e.id !== emailId));
     }
 
     return deleted;
@@ -926,16 +932,6 @@ export class FirestoreDb {
       updatedAt: now,
     };
 
-    const key = `${userId}:${accountId}`;
-    const list = this.threadsMemoryCache.get(key) || [];
-    const idx = list.findIndex((t) => t.id === thread.id);
-    if (idx !== -1) {
-      list[idx] = docData;
-    } else {
-      list.push(docData);
-    }
-    this.threadsMemoryCache.set(key, list);
-
     if (this.canAttemptCloud()) {
       try {
         await Promise.all([
@@ -945,8 +941,19 @@ export class FirestoreDb {
         this.markCloudSuccess();
       } catch (err: any) {
         this.handleCloudError('saveThread', userId, err);
+        throw new StorageUnavailableError('Failed to persist thread to Firestore: storage unavailable', err);
       }
     }
+
+    const key = `${userId}:${accountId}`;
+    const list = this.threadsMemoryCache.get(key) || [];
+    const idx = list.findIndex((t) => t.id === thread.id);
+    if (idx !== -1) {
+      list[idx] = docData;
+    } else {
+      list.push(docData);
+    }
+    this.threadsMemoryCache.set(key, list);
   }
 
   // ==========================================================================
@@ -973,8 +980,10 @@ export class FirestoreDb {
           ...attachment,
           userId,
         }, { merge: true });
+        this.markCloudSuccess();
       } catch (err: any) {
         this.handleCloudError('saveAttachment', userId, err);
+        throw new StorageUnavailableError('Failed to persist attachment metadata to Firestore: storage unavailable', err);
       }
     }
   }

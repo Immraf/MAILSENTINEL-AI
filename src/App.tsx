@@ -469,28 +469,29 @@ function AppContent() {
 
   // Sync a single account (Gmail or Outlook)
   const handleSyncSingleAccount = async (accountId: string) => {
+    if (isSyncing) return;
     setIsSyncing(true);
     setAccounts((prev) =>
       prev.map((a) => (a.id === accountId ? { ...a, status: 'Syncing' } : a))
     );
     try {
       const res = await apiFetch(`/api/accounts/${accountId}/sync`, { method: 'POST' });
-      if (res.ok) {
-        const [accRes, eRes, qRes] = await Promise.all([
-          apiFetch('/api/accounts'),
-          apiFetch('/api/emails'),
-          apiFetch('/api/quarantine'),
-        ]);
-        if (accRes.ok) setAccounts(await accRes.json());
-        if (eRes.ok) {
-          const freshEmails = await eRes.json();
-          setEmails(freshEmails);
-          loadDailySummary(freshEmails);
-        }
-        if (qRes.ok) setQuarantineItems(await qRes.json());
+      const [accRes, eRes, qRes] = await Promise.all([
+        apiFetch('/api/accounts'),
+        apiFetch('/api/emails'),
+        apiFetch('/api/quarantine'),
+      ]);
+      if (accRes.ok) setAccounts(await accRes.json());
+      if (eRes.ok) {
+        const freshEmails = await eRes.json();
+        setEmails(freshEmails);
+        loadDailySummary(freshEmails);
       }
+      if (qRes.ok) setQuarantineItems(await qRes.json());
     } catch (err) {
       console.warn(`Sync failed for account ${accountId}:`, err);
+      const accRes = await apiFetch('/api/accounts').catch(() => null);
+      if (accRes && accRes.ok) setAccounts(await accRes.json());
     } finally {
       setIsSyncing(false);
     }
