@@ -352,21 +352,21 @@ export class FirestoreDb {
       updatedAt: now,
     };
 
-    // Update in-memory cache
-    const userAccs = this.accountsMemoryCache.get(userId) || [];
-    this.accountsMemoryCache.set(userId, [...userAccs.filter((a) => a.id !== account.id), docData]);
-
     if (this.canAttemptCloud()) {
       try {
         await this.db.doc(`users/${userId}/emailAccounts/${account.id}`).set(docData, { merge: true });
         this.markCloudSuccess();
       } catch (err: any) {
         this.handleCloudError('addAccount', userId, err);
-        if (!this.isCloudDisabled) {
-          throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.', err);
-        }
+        throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.', err);
       }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
+
+    // Update in-memory cache ONLY upon confirmed write
+    const userAccs = this.accountsMemoryCache.get(userId) || [];
+    this.accountsMemoryCache.set(userId, [...userAccs.filter((a) => a.id !== account.id), docData]);
 
     await this.updateSyncState(userId, account.id, {
       status: 'idle',
@@ -389,12 +389,6 @@ export class FirestoreDb {
       updatedAt: new Date().toISOString(),
     } as FirestoreEmailAccountDoc;
 
-    const userAccs = this.accountsMemoryCache.get(userId) || [];
-    this.accountsMemoryCache.set(
-      userId,
-      userAccs.map((a) => (a.id === accountId ? updated : a))
-    );
-
     if (this.canAttemptCloud()) {
       try {
         const ref = this.db.doc(`users/${userId}/emailAccounts/${accountId}`);
@@ -402,11 +396,18 @@ export class FirestoreDb {
         this.markCloudSuccess();
       } catch (err: any) {
         this.handleCloudError('updateAccount', userId, err);
-        if (!this.isCloudDisabled) {
-          throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.', err);
-        }
+        throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.', err);
       }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
+
+    // Update in-memory cache ONLY upon confirmed write
+    const userAccs = this.accountsMemoryCache.get(userId) || [];
+    this.accountsMemoryCache.set(
+      userId,
+      userAccs.map((a) => (a.id === accountId ? updated : a))
+    );
 
     return updated;
   }
@@ -417,12 +418,6 @@ export class FirestoreDb {
       return false;
     }
 
-    const userAccs = this.accountsMemoryCache.get(userId) || [];
-    this.accountsMemoryCache.set(
-      userId,
-      userAccs.filter((a) => a.id !== accountId)
-    );
-
     if (this.canAttemptCloud()) {
       try {
         const ref = this.db.doc(`users/${userId}/emailAccounts/${accountId}`);
@@ -431,11 +426,18 @@ export class FirestoreDb {
         this.markCloudSuccess();
       } catch (err: any) {
         this.handleCloudError('deleteAccount', userId, err);
-        if (!this.isCloudDisabled) {
-          throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.', err);
-        }
+        throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.', err);
       }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
+
+    // Update in-memory cache ONLY upon confirmed delete
+    const userAccs = this.accountsMemoryCache.get(userId) || [];
+    this.accountsMemoryCache.set(
+      userId,
+      userAccs.filter((a) => a.id !== accountId)
+    );
 
     await this.deleteProviderCredentials(userId, accountId).catch(() => {});
     return true;
@@ -469,7 +471,6 @@ export class FirestoreDb {
       createdAt: now,
       updatedAt: now,
     };
-    this.providerCredentialsCache.set(`${userId}:${accountId}`, docData);
 
     if (this.canAttemptCloud()) {
       try {
@@ -477,11 +478,14 @@ export class FirestoreDb {
         this.markCloudSuccess();
       } catch (err: any) {
         this.handleCloudError('saveProviderCredentials', userId, err);
-        if (!this.isCloudDisabled) {
-          throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.', err);
-        }
+        throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.', err);
       }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
+
+    // Update cache ONLY upon confirmed write
+    this.providerCredentialsCache.set(`${userId}:${accountId}`, docData);
   }
 
   static async getProviderCredentials(userId: string, accountId: string): Promise<FirestoreProviderCredentialDoc | null> {
