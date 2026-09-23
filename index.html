@@ -10,6 +10,57 @@
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <script src="https://apis.google.com/js/api.js" async defer></script>
+    <script>
+      // Defensive guard for sandboxed iframes & mobile WebKit:
+      // When window.Notification exists but calling new Notification() throws "TypeError: Illegal constructor",
+      // proxy or replace constructor with a safe fallback that delegates to serviceWorker.showNotification or no-ops.
+      (function() {
+        if (typeof window !== 'undefined' && 'Notification' in window) {
+          try {
+            var OriginalNotification = window.Notification;
+            // Test if constructor is constructible without throwing Illegal constructor
+            var testAllowed = false;
+            try {
+              // Creating with no arguments or dummy to test constructor validity
+              new OriginalNotification('');
+              testAllowed = true;
+            } catch (e) {
+              if (e && e.message && e.message.toLowerCase().includes('illegal constructor')) {
+                testAllowed = false;
+              } else {
+                // If it failed because of missing args/permission, constructor itself is not illegal
+                testAllowed = true;
+              }
+            }
+
+            if (!testAllowed) {
+              var SafeNotification = function(title, options) {
+                if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator && navigator.serviceWorker.ready) {
+                  navigator.serviceWorker.ready.then(function(reg) {
+                    if (reg && typeof reg.showNotification === 'function') {
+                      reg.showNotification(title, options);
+                    }
+                  }).catch(function() {});
+                }
+                return {};
+              };
+              // Inherit static properties and methods
+              SafeNotification.permission = OriginalNotification.permission;
+              SafeNotification.requestPermission = function(cb) {
+                try {
+                  return OriginalNotification.requestPermission(cb);
+                } catch (err) {
+                  if (typeof cb === 'function') cb('denied');
+                  return Promise.resolve('denied');
+                }
+              };
+              SafeNotification.maxActions = OriginalNotification.maxActions || 2;
+              window.Notification = SafeNotification;
+            }
+          } catch (_) {}
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

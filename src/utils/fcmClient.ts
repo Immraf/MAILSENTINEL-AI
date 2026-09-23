@@ -142,11 +142,16 @@ export async function requestNotificationPermission(): Promise<'granted' | 'deni
   if (typeof window === 'undefined' || !('Notification' in window)) {
     return 'denied';
   }
-  if (Notification.permission === 'granted') {
-    return 'granted';
+  try {
+    if (Notification.permission === 'granted') {
+      return 'granted';
+    }
+    const result = await Notification.requestPermission();
+    return result;
+  } catch (err) {
+    console.warn('[FCM Client] Notification permission request prevented in this iframe context:', err);
+    return 'denied';
   }
-  const result = await Notification.requestPermission();
-  return result;
 }
 
 /**

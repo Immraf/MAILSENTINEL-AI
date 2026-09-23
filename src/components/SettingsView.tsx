@@ -15,6 +15,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { NotificationConfig, SecuritySettings, normalizeNotificationConfig } from '../types';
+import { dispatchSafeBrowserNotification } from '../utils/browserNotification';
 
 interface SettingsViewProps {
   notifications: NotificationConfig;
@@ -56,24 +57,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const handleTestNotification = () => {
     onSendTestNotification();
 
-    // Trigger browser notification if supported and permitted
-    if ('Notification' in window) {
-      if (Notification.permission === 'granted') {
-        new Notification('MailSentinel AI Security Alert', {
-          body: 'Test alert: High-priority threat intercept verified.',
-          icon: '/favicon.ico',
-        });
-      } else if (Notification.permission !== 'denied') {
-        Notification.requestPermission().then((permission) => {
-          if (permission === 'granted') {
-            new Notification('MailSentinel AI Security Alert', {
-              body: 'Test alert: High-priority threat intercept verified.',
-              icon: '/favicon.ico',
-            });
-          }
-        });
-      }
-    }
+    // Trigger browser notification safely (suppresses TypeError: Illegal constructor in iframes)
+    dispatchSafeBrowserNotification('MailSentinel AI Security Alert', {
+      body: 'Test alert: High-priority threat intercept verified.',
+      icon: '/favicon.ico',
+    }).catch(() => {});
 
     setTestSent(true);
     setTimeout(() => setTestSent(false), 3000);
