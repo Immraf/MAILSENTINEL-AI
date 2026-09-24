@@ -2665,6 +2665,17 @@
   ],
   "auditLogs": [
     {
+      "id": "log-auth-created-1790268380856",
+      "timestamp": "2026-09-24T16:46:20.856Z",
+      "action": "PROFILE_CREATED",
+      "actionType": "PROFILE_CREATED",
+      "details": "Profile created in Firestore for umarimran274@gmail.com",
+      "description": "Profile created in Firestore for umarimran274@gmail.com",
+      "category": "user",
+      "severity": "info",
+      "userId": "vrN93nms7hWOmf6wJ4IrnRJRjRm1"
+    },
+    {
       "id": "log-logout-1790104521527",
       "timestamp": "2026-09-22T19:15:21.020Z",
       "action": "LOGOUT",

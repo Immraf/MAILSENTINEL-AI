@@ -119,9 +119,9 @@ export class FirestoreDb {
     if (now - this.lastCloudErrorLogged > 30000) {
       this.lastCloudErrorLogged = now;
       if (isPermissionOrDisabled) {
-        console.warn(`[FirestoreDb] Cloud Firestore API disabled or unauthorized (${msg}). Running seamlessly in resilient local storage mode.`);
+        console.warn(`[FirestoreDb] Cloud Firestore API disabled or unauthorized (${msg}). Firestore unavailable; Gmail persistence operation failed.`);
       } else {
-        console.warn(`[FirestoreDb] Operation '${operation}' for user ${userId} notice:`, msg);
+        console.warn(`[FirestoreDb] Firestore unavailable; Gmail persistence operation '${operation}' failed for user ${userId}:`, msg);
       }
     }
   }
@@ -275,13 +275,11 @@ export class FirestoreDb {
         return accounts;
       } catch (err: any) {
         this.handleCloudError('getAccounts', userId, err);
-        if (this.isCloudDisabled) {
-          return this.accountsMemoryCache.get(userId) || [];
-        }
         throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.', err);
       }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
-    return this.accountsMemoryCache.get(userId) || [];
   }
 
   static async getAccountById(userId: string, accountId: string): Promise<FirestoreEmailAccountDoc | null> {
@@ -295,15 +293,11 @@ export class FirestoreDb {
         return null;
       } catch (err: any) {
         this.handleCloudError('getAccountById', userId, err);
-        if (this.isCloudDisabled) {
-          const cached = this.accountsMemoryCache.get(userId) || [];
-          return cached.find((a) => a.id === accountId) || null;
-        }
         throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.', err);
       }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
-    const cached = this.accountsMemoryCache.get(userId) || [];
-    return cached.find((a) => a.id === accountId) || null;
   }
 
   static async getAccountByEmail(userId: string, emailAddress: string, provider?: string): Promise<FirestoreEmailAccountDoc | null> {
@@ -489,7 +483,6 @@ export class FirestoreDb {
   }
 
   static async getProviderCredentials(userId: string, accountId: string): Promise<FirestoreProviderCredentialDoc | null> {
-    const cached = this.providerCredentialsCache.get(`${userId}:${accountId}`);
     if (this.canAttemptCloud()) {
       try {
         const snap = await this.db.doc(`users/${userId}/providerCredentials/${accountId}`).get();
@@ -499,18 +492,17 @@ export class FirestoreDb {
           this.markCloudSuccess();
           return data;
         }
+        return null;
       } catch (err: any) {
         this.handleCloudError('getProviderCredentials', userId, err);
-        if (!this.isCloudDisabled) {
-          throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.', err);
-        }
+        throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.', err);
       }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
-    return cached || null;
   }
 
   static async deleteProviderCredentials(userId: string, accountId: string): Promise<boolean> {
-    this.providerCredentialsCache.delete(`${userId}:${accountId}`);
     if (this.canAttemptCloud()) {
       try {
         const ref = this.db.doc(`users/${userId}/providerCredentials/${accountId}`);
@@ -518,17 +510,18 @@ export class FirestoreDb {
         if (snap.exists) {
           await ref.delete();
           this.markCloudSuccess();
+          this.providerCredentialsCache.delete(`${userId}:${accountId}`);
           return true;
         }
+        this.providerCredentialsCache.delete(`${userId}:${accountId}`);
         return false;
       } catch (err: any) {
         this.handleCloudError('deleteProviderCredentials', userId, err);
-        if (!this.isCloudDisabled) {
-          throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.', err);
-        }
+        throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.', err);
       }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
-    return true;
   }
 
   // ==========================================================================
@@ -554,11 +547,14 @@ export class FirestoreDb {
           this.syncStateMemoryCache.set(`${userId}:${accountId}`, data);
           return data;
         }
+        return null;
       } catch (err: any) {
         this.handleCloudError('getSyncState', userId, err);
+        throw new StorageUnavailableError('Failed to retrieve sync state from Firestore: storage unavailable', err);
       }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
-    return this.syncStateMemoryCache.get(`${userId}:${accountId}`) || null;
   }
 
   static async updateSyncState(userId: string, accountId: string, patch: Partial<FirestoreEmailSyncStateDoc>): Promise<void> {
@@ -597,6 +593,8 @@ export class FirestoreDb {
         this.handleCloudError('updateSyncState', userId, err);
         throw new StorageUnavailableError('Failed to persist sync state to Firestore: storage unavailable', err);
       }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
     // Update cache only upon successful persistence
     this.syncStateMemoryCache.set(key, updated);
@@ -637,10 +635,8 @@ export class FirestoreDb {
               topQ = topQ.limit(options.limitCount);
             }
             const topSnap = await topQ.get();
-            if (topSnap.docs.length > 0) {
-              this.markCloudSuccess();
-              results = topSnap.docs.map((d) => d.data() as FirestoreEmailDoc);
-            }
+            this.markCloudSuccess();
+            results = topSnap.docs.map((d) => d.data() as FirestoreEmailDoc);
           }
         } else {
           let topQ: FirebaseFirestore.Query = this.db.collection(`users/${userId}/emails`);
@@ -648,32 +644,15 @@ export class FirestoreDb {
             topQ = topQ.limit(options.limitCount);
           }
           const topSnap = await topQ.get();
-          if (topSnap.docs.length > 0) {
-            this.markCloudSuccess();
-            results = topSnap.docs.map((d) => d.data() as FirestoreEmailDoc);
-          }
+          this.markCloudSuccess();
+          results = topSnap.docs.map((d) => d.data() as FirestoreEmailDoc);
         }
       } catch (err: any) {
         this.handleCloudError('getEmails', userId, err);
+        throw new StorageUnavailableError('Failed to fetch emails from Firestore: storage unavailable', err);
       }
-    }
-
-    if (results.length === 0) {
-      // Memory cache fallback (isolated strictly per tenant)
-      if (options?.accountId && options.accountId !== 'all') {
-        const accKey = `${userId}:${options.accountId}`;
-        const accEmails = this.accountEmailsMemoryCache.get(accKey) || [];
-        if (accEmails.length > 0) {
-          results = [...accEmails];
-        }
-      }
-
-      if (results.length === 0) {
-        const allUserEmails = this.emailsMemoryCache.get(userId) || [];
-        results = (options?.accountId && options.accountId !== 'all')
-          ? allUserEmails.filter((e) => e.accountId === options.accountId)
-          : [...allUserEmails];
-      }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
 
     // Apply additional filters
@@ -718,18 +697,14 @@ export class FirestoreDb {
           this.markCloudSuccess();
           return snap.data() as FirestoreEmailDoc;
         }
+        return null;
       } catch (err: any) {
         this.handleCloudError('getEmailById', userId, err);
+        throw new StorageUnavailableError('Failed to fetch email from Firestore: storage unavailable', err);
       }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
-
-    if (accountId) {
-      const accEmails = this.accountEmailsMemoryCache.get(`${userId}:${accountId}`) || [];
-      const found = accEmails.find((e) => e.id === emailId);
-      if (found) return found;
-    }
-    const all = this.emailsMemoryCache.get(userId) || [];
-    return all.find((e) => e.id === emailId) || null;
   }
 
   static async saveEmail(userId: string, email: Email | FirestoreEmailDoc | any): Promise<FirestoreEmailDoc> {
@@ -763,6 +738,8 @@ export class FirestoreDb {
         this.handleCloudError('saveEmail', userId, err);
         throw new StorageUnavailableError('Failed to persist email to Firestore: storage unavailable', err);
       }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
 
     // Update memory caches only upon confirmed Firestore write
@@ -826,6 +803,8 @@ export class FirestoreDb {
         this.handleCloudError('updateEmail', userId, err);
         throw new StorageUnavailableError('Failed to update email in Firestore: storage unavailable', err);
       }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
 
     // Update memory caches
@@ -850,8 +829,6 @@ export class FirestoreDb {
   }
 
   static async deleteEmail(userId: string, emailId: string, accountId?: string): Promise<boolean> {
-    let deleted = false;
-
     if (this.canAttemptCloud()) {
       try {
         const promises: Promise<any>[] = [
@@ -862,19 +839,16 @@ export class FirestoreDb {
         }
         await Promise.all(promises);
         this.markCloudSuccess();
-        deleted = true;
       } catch (err: any) {
         this.handleCloudError('deleteEmail', userId, err);
         throw new StorageUnavailableError('Failed to delete email from Firestore: storage unavailable', err);
       }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
 
     const userEmails = this.emailsMemoryCache.get(userId) || [];
-    const filteredUser = userEmails.filter((e) => e.id !== emailId);
-    if (filteredUser.length < userEmails.length) {
-      deleted = true;
-      this.emailsMemoryCache.set(userId, filteredUser);
-    }
+    this.emailsMemoryCache.set(userId, userEmails.filter((e) => e.id !== emailId));
 
     if (accountId) {
       const accKey = `${userId}:${accountId}`;
@@ -882,7 +856,7 @@ export class FirestoreDb {
       this.accountEmailsMemoryCache.set(accKey, accEmails.filter((e) => e.id !== emailId));
     }
 
-    return deleted;
+    return true;
   }
 
   // ==========================================================================
@@ -893,32 +867,22 @@ export class FirestoreDb {
       try {
         if (accountId) {
           const snapAcc = await this.db.collection(`users/${userId}/emailAccounts/${accountId}/threads`).get();
-          if (snapAcc.docs.length > 0) {
-            this.markCloudSuccess();
-            return snapAcc.docs.map((d) => d.data() as FirestoreEmailThreadDoc);
-          }
+          this.markCloudSuccess();
+          const docs = snapAcc.docs.map((d) => d.data() as FirestoreEmailThreadDoc);
+          this.threadsMemoryCache.set(`${userId}:${accountId}`, docs);
+          return docs;
         }
         const snap = await this.db.collection(`users/${userId}/emailThreads`).get();
-        if (snap.docs.length > 0) {
-          this.markCloudSuccess();
-          const docs = snap.docs.map((d) => d.data() as FirestoreEmailThreadDoc);
-          return accountId ? docs.filter((t) => t.accountId === accountId) : docs;
-        }
+        this.markCloudSuccess();
+        const docs = snap.docs.map((d) => d.data() as FirestoreEmailThreadDoc);
+        return docs;
       } catch (err: any) {
         this.handleCloudError('getThreads', userId, err);
+        throw new StorageUnavailableError('Failed to fetch threads from Firestore: storage unavailable', err);
       }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
-
-    if (accountId) {
-      return this.threadsMemoryCache.get(`${userId}:${accountId}`) || [];
-    }
-    const allThreads: FirestoreEmailThreadDoc[] = [];
-    for (const [key, threads] of this.threadsMemoryCache.entries()) {
-      if (key.startsWith(`${userId}:`)) {
-        allThreads.push(...threads);
-      }
-    }
-    return allThreads;
   }
 
   static async getThreadById(userId: string, threadId: string, accountId?: string): Promise<FirestoreEmailThreadDoc | null> {
@@ -947,6 +911,8 @@ export class FirestoreDb {
         this.handleCloudError('saveThread', userId, err);
         throw new StorageUnavailableError('Failed to persist thread to Firestore: storage unavailable', err);
       }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
 
     const key = `${userId}:${accountId}`;
@@ -960,6 +926,67 @@ export class FirestoreDb {
     this.threadsMemoryCache.set(key, list);
   }
 
+  static async updateThread(userId: string, accountId: string, threadId: string, patch: Partial<FirestoreEmailThreadDoc>): Promise<FirestoreEmailThreadDoc | null> {
+    const existing = await this.getThreadById(userId, threadId, accountId);
+    if (!existing) return null;
+    const now = new Date().toISOString();
+    const updated: FirestoreEmailThreadDoc = {
+      ...existing,
+      ...patch,
+      userId,
+      accountId,
+      updatedAt: now,
+    };
+
+    if (this.canAttemptCloud()) {
+      try {
+        await Promise.all([
+          this.db.doc(`users/${userId}/emailAccounts/${accountId}/threads/${threadId}`).set(updated, { merge: true }),
+          this.db.doc(`users/${userId}/emailThreads/${threadId}`).set(updated, { merge: true }),
+        ]);
+        this.markCloudSuccess();
+      } catch (err: any) {
+        this.handleCloudError('updateThread', userId, err);
+        throw new StorageUnavailableError('Failed to update thread in Firestore: storage unavailable', err);
+      }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
+    }
+
+    const key = `${userId}:${accountId}`;
+    const list = this.threadsMemoryCache.get(key) || [];
+    const idx = list.findIndex((t) => t.id === threadId);
+    if (idx !== -1) {
+      list[idx] = updated;
+    } else {
+      list.push(updated);
+    }
+    this.threadsMemoryCache.set(key, list);
+    return updated;
+  }
+
+  static async deleteThread(userId: string, accountId: string, threadId: string): Promise<boolean> {
+    if (this.canAttemptCloud()) {
+      try {
+        await Promise.all([
+          this.db.doc(`users/${userId}/emailAccounts/${accountId}/threads/${threadId}`).delete(),
+          this.db.doc(`users/${userId}/emailThreads/${threadId}`).delete(),
+        ]);
+        this.markCloudSuccess();
+      } catch (err: any) {
+        this.handleCloudError('deleteThread', userId, err);
+        throw new StorageUnavailableError('Failed to delete thread from Firestore: storage unavailable', err);
+      }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
+    }
+
+    const key = `${userId}:${accountId}`;
+    const list = this.threadsMemoryCache.get(key) || [];
+    this.threadsMemoryCache.set(key, list.filter((t) => t.id !== threadId));
+    return true;
+  }
+
   // ==========================================================================
   // 6. Attachments (/users/{userId}/attachments/{attachmentId})
   // ==========================================================================
@@ -969,12 +996,15 @@ export class FirestoreDb {
         let q: FirebaseFirestore.Query = this.db.collection(`users/${userId}/attachments`);
         if (emailId) q = q.where('emailId', '==', emailId);
         const snap = await q.get();
+        this.markCloudSuccess();
         return snap.docs.map((d) => d.data() as FirestoreAttachmentDoc);
       } catch (err: any) {
         this.handleCloudError('getAttachments', userId, err);
+        throw new StorageUnavailableError('Failed to fetch attachments from Firestore: storage unavailable', err);
       }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
-    return [];
   }
 
   static async saveAttachment(userId: string, attachment: FirestoreAttachmentDoc): Promise<void> {
@@ -989,6 +1019,8 @@ export class FirestoreDb {
         this.handleCloudError('saveAttachment', userId, err);
         throw new StorageUnavailableError('Failed to persist attachment metadata to Firestore: storage unavailable', err);
       }
+    } else {
+      throw new StorageUnavailableError('MailSentinel storage is temporarily unavailable.');
     }
   }
 

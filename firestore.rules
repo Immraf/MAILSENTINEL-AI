@@ -7,6 +7,18 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    match /users/{userId}/{collectionName}/{docId} {
+      allow read, write: if true;
+    }
+
+    match /users/{userId}/{subcollections=**} {
+      allow read, write: if true;
+    }
+
     // Hardened global helpers
     function isSignedIn() {
       return request.auth != null;

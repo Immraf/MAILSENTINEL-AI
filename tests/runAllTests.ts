@@ -1399,16 +1399,92 @@ async function testStep4FinalHardening20Points(): Promise<void> {
 
   // 19. Firestore write failure halts sync and does not fake completion
   await runTest(suite, '19. Firestore write failure halts sync and does not fake completion', async () => {
-    let threwExpectedError = false;
+    // Enable simulated Firestore outage
+    mockFirestore.setSimulateFailure(true);
+
     try {
-      // StorageUnavailableError is thrown if storage is offline
-      const simulatedFailure = new StorageUnavailableError('Simulated write failure');
-      assert(simulatedFailure.code === 'STORAGE_UNAVAILABLE', 'Storage error code verified');
-      threwExpectedError = true;
-    } catch {
-      threwExpectedError = false;
+      // 1. saveEmail must throw StorageUnavailableError and not fake success
+      let saveFailed = false;
+      try {
+        await FirestoreDb.saveEmail(testUid, {
+          id: 'test-failing-email',
+          accountId: testAccA,
+          subject: 'Should Fail',
+          sender: 'fail@sender.com',
+          senderName: 'Fail Sender',
+          to: ['user@test.com'],
+          receivedAt: new Date().toISOString(),
+          bodySnippet: 'Should fail',
+          isRead: false,
+          hasAttachments: false,
+        });
+      } catch (err: any) {
+        if (err instanceof StorageUnavailableError || err?.code === 'STORAGE_UNAVAILABLE') {
+          saveFailed = true;
+        }
+      }
+      assert(saveFailed, 'saveEmail must reject with StorageUnavailableError during Firestore outage');
+
+      // 2. updateEmail must throw StorageUnavailableError
+      let updateFailed = false;
+      try {
+        await FirestoreDb.updateEmail(testUid, 'test-failing-email', { isRead: true }, testAccA);
+      } catch (err: any) {
+        if (err instanceof StorageUnavailableError || err?.code === 'STORAGE_UNAVAILABLE') {
+          updateFailed = true;
+        }
+      }
+      assert(updateFailed, 'updateEmail must reject with StorageUnavailableError during Firestore outage');
+
+      // 3. deleteEmail must throw StorageUnavailableError
+      let deleteFailed = false;
+      try {
+        await FirestoreDb.deleteEmail(testUid, 'test-failing-email', testAccA);
+      } catch (err: any) {
+        if (err instanceof StorageUnavailableError || err?.code === 'STORAGE_UNAVAILABLE') {
+          deleteFailed = true;
+        }
+      }
+      assert(deleteFailed, 'deleteEmail must reject with StorageUnavailableError during Firestore outage');
+
+      // 4. saveThread must throw StorageUnavailableError
+      let threadFailed = false;
+      try {
+        await FirestoreDb.saveThread(testUid, testAccA, {
+          id: 'test-failing-thread',
+          accountId: testAccA,
+          userId: testUid,
+          snippet: 'Failing thread',
+          messageCount: 1,
+          unreadCount: 1,
+          lastMessageAt: new Date().toISOString(),
+          participants: ['user@test.com'],
+          hasAttachments: false,
+        });
+      } catch (err: any) {
+        if (err instanceof StorageUnavailableError || err?.code === 'STORAGE_UNAVAILABLE') {
+          threadFailed = true;
+        }
+      }
+      assert(threadFailed, 'saveThread must reject with StorageUnavailableError during Firestore outage');
+
+      // 5. updateSyncState must throw StorageUnavailableError
+      let syncStateFailed = false;
+      try {
+        await FirestoreDb.updateSyncState(testUid, testAccA, {
+          status: 'syncing',
+          progressPercent: 50,
+        });
+      } catch (err: any) {
+        if (err instanceof StorageUnavailableError || err?.code === 'STORAGE_UNAVAILABLE') {
+          syncStateFailed = true;
+        }
+      }
+      assert(syncStateFailed, 'updateSyncState must reject with StorageUnavailableError during Firestore outage');
+    } finally {
+      // Restore normal Firestore mock operation
+      mockFirestore.setSimulateFailure(false);
     }
-    assert(threwExpectedError, 'Storage write failure must reject with StorageUnavailableError');
   });
 
   // 20. Reauthorization required state handled on invalid/revoked refresh
