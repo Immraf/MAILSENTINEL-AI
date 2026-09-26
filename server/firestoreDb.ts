@@ -104,22 +104,20 @@ export class FirestoreDb {
       return;
     }
 
-    const isPermissionOrDisabled =
-      err?.code === 7 ||
-      msg.includes('PERMISSION_DENIED') ||
+    const isServiceDisabled =
       msg.includes('Cloud Firestore API has not been used') ||
-      msg.includes('disabled') ||
-      msg.includes('SERVICE_DISABLED');
+      msg.includes('SERVICE_DISABLED') ||
+      msg.includes('has not been enabled');
 
-    if (isPermissionOrDisabled) {
+    if (isServiceDisabled) {
       this.isCloudDisabled = true;
     }
 
     const now = Date.now();
     if (now - this.lastCloudErrorLogged > 30000) {
       this.lastCloudErrorLogged = now;
-      if (isPermissionOrDisabled) {
-        console.warn(`[FirestoreDb] Cloud Firestore API disabled or unauthorized (${msg}). Firestore unavailable; Gmail persistence operation failed.`);
+      if (isServiceDisabled) {
+        console.warn(`[FirestoreDb] Cloud Firestore API disabled on project (${msg}). Firestore unavailable; Gmail persistence operation failed.`);
       } else {
         console.warn(`[FirestoreDb] Firestore unavailable; Gmail persistence operation '${operation}' failed for user ${userId}:`, msg);
       }

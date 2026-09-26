@@ -2665,6 +2665,48 @@
   ],
   "auditLogs": [
     {
+      "id": "log-logout-1790417432445",
+      "timestamp": "2026-09-26T10:10:31.276Z",
+      "action": "LOGOUT",
+      "actionType": "LOGOUT",
+      "details": "User signed out",
+      "category": "user",
+      "severity": "info",
+      "userId": "test-user-1790417431276"
+    },
+    {
+      "id": "log-login-1790417432441",
+      "timestamp": "2026-09-26T10:10:31.276Z",
+      "action": "LOGIN",
+      "actionType": "LOGIN",
+      "details": "User authenticated via Google Sign-In",
+      "category": "user",
+      "severity": "info",
+      "userId": "test-user-1790417431276"
+    },
+    {
+      "id": "log-auth-created-1790417214535",
+      "timestamp": "2026-09-26T10:06:54.535Z",
+      "action": "PROFILE_CREATED",
+      "actionType": "PROFILE_CREATED",
+      "details": "Profile created in Firestore for umarimran274@gmail.com",
+      "description": "Profile created in Firestore for umarimran274@gmail.com",
+      "category": "user",
+      "severity": "info",
+      "userId": "vrN93nms7hWOmf6wJ4IrnRJRjRm1"
+    },
+    {
+      "id": "log-auth-login-1790415798430",
+      "timestamp": "2026-09-26T09:43:17.357Z",
+      "action": "LOGIN",
+      "actionType": "LOGIN",
+      "details": "Authenticated session verified for umarimran274@gmail.com",
+      "description": "Authenticated session verified for umarimran274@gmail.com",
+      "category": "user",
+      "severity": "info",
+      "userId": "vrN93nms7hWOmf6wJ4IrnRJRjRm1"
+    },
+    {
       "id": "log-auth-created-1790268380856",
       "timestamp": "2026-09-24T16:46:20.856Z",
       "action": "PROFILE_CREATED",

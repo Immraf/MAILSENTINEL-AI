@@ -1507,6 +1507,57 @@ async function testStep4FinalHardening20Points(): Promise<void> {
 }
 
 // ============================================================================
+// SUITE 9: FIRESTORE SECURITY RULES HARDENING VERIFICATION
+// ============================================================================
+async function testFirestoreRulesHardening() {
+  console.log('\n--- 9. Running Firestore Security Rules Hardening Tests ---');
+
+  const fs = await import('fs');
+  const path = await import('path');
+  const rulesContent = fs.readFileSync(path.join(process.cwd(), 'firestore.rules'), 'utf-8');
+
+  await runTest('RULES', '1. Zero broad "allow ... if true" rules exist in firestore.rules', () => {
+    const forbidden = [
+      /allow\s+read\s*,\s*write\s*:\s*if\s+true/i,
+      /allow\s+read\s*:\s*if\s+true/i,
+      /allow\s+write\s*:\s*if\s+true/i,
+    ];
+    for (const pat of forbidden) {
+      assert(!pat.test(rulesContent), `Forbidden permissive rule pattern ${pat} found in firestore.rules`);
+    }
+  });
+
+  await runTest('RULES', '2. Unauthenticated user denied from reading user profiles', () => {
+    assert(rulesContent.includes('function isOwner(userId) {'), 'Must define isOwner helper');
+    assert(rulesContent.includes('return isSignedIn() && request.auth.uid == userId;'), 'isOwner must require isSignedIn() and matching uid');
+  });
+
+  await runTest('RULES', '3. Provider credentials strictly forbidden to client SDK reads/writes', () => {
+    const providerCredsMatch = rulesContent.match(/match\s+\/providerCredentials\/\{accountId\}\s*\{\s*allow\s+read\s*:\s*if\s+false;\s*allow\s+write\s*:\s*if\s+false;\s*\}/);
+    assert(providerCredsMatch !== null, 'providerCredentials must have allow read: if false; allow write: if false;');
+  });
+
+  await runTest('RULES', '4. Server secrets and processing jobs strictly denied to client SDK', () => {
+    assert(rulesContent.includes('match /serverSecrets/{secretId} {\n        allow read: if false;\n        allow write: if false;'), 'serverSecrets must be denied');
+    assert(rulesContent.includes('match /processingJobs/{jobId} {\n        allow read: if false;\n        allow write: if false;'), 'processingJobs must be denied');
+  });
+
+  await runTest('RULES', '5. Account-scoped emails, threads, syncState deny client writes', () => {
+    assert(rulesContent.includes('match /emails/{emailId} {\n          allow read, list: if isOwner(userId);\n          allow write: if false;'), 'Account emails must deny client write');
+    assert(rulesContent.includes('match /threads/{threadId} {\n          allow read, list: if isOwner(userId);\n          allow write: if false;'), 'Account threads must deny client write');
+    assert(rulesContent.includes('match /syncState/{stateId} {\n          allow read, list: if isOwner(userId);\n          allow write: if false;'), 'Account syncState must deny client write');
+  });
+
+  await runTest('RULES', '6. User cannot elevate own role to admin in user profile update', () => {
+    assert(rulesContent.includes("'role', 'isAdmin'"), 'role and isAdmin must be in forbidden keys check for user profile write/update');
+  });
+
+  await runTest('RULES', '7. Audit logs are immutable (client update and delete denied)', () => {
+    assert(rulesContent.includes('allow update, delete: if false; // Immutable audit log'), 'auditLogs must be immutable with update/delete disabled');
+  });
+}
+
+// ============================================================================
 // MAIN RUNNER
 // ============================================================================
 async function main() {
@@ -1525,6 +1576,7 @@ async function main() {
     await testErrorHandlingAndRateLimiting();
     await testStep35FirestoreAccountStorage();
     await testStep4GmailSyncAndFirestoreStorage();
+    await testFirestoreRulesHardening();
     await testStep4FinalHardening20Points();
   } catch (err) {
     console.error('Test suite runner encountered an unhandled exception:', err);

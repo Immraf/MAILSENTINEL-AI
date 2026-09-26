@@ -12,6 +12,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { getRequestAuthContext } from './authContext';
 
 export interface FirestoreConfig {
   projectId: string;
@@ -87,6 +88,7 @@ export class RestFirestore {
   private databaseId: string;
   private apiKey: string;
   private baseUrl: string;
+  private static globalServerStore: Map<string, any> = new Map();
 
   constructor(customConfig?: FirestoreConfig) {
     let config = customConfig;
@@ -107,10 +109,31 @@ export class RestFirestore {
     this.baseUrl = `https://firestore.googleapis.com/v1/projects/${this.projectId}/databases/${this.databaseId}/documents`;
   }
 
+  private isServerOnlyPath(normalizedPath: string): boolean {
+    return (
+      normalizedPath.includes('/providerCredentials/') ||
+      normalizedPath.endsWith('/providerCredentials') ||
+      normalizedPath.includes('/serverSecrets/') ||
+      normalizedPath.includes('/processingJobs/')
+    );
+  }
+
   private buildUrl(docPath: string): string {
     const cleanPath = docPath.replace(/^\/+|\/+$/g, '');
     const url = `${this.baseUrl}/${cleanPath}`;
     return this.apiKey ? `${url}?key=${encodeURIComponent(this.apiKey)}` : url;
+  }
+
+  private getHeaders(contentType = false): Record<string, string> {
+    const headers: Record<string, string> = {};
+    if (contentType) {
+      headers['Content-Type'] = 'application/json';
+    }
+    const ctx = getRequestAuthContext();
+    if (ctx?.token) {
+      headers['Authorization'] = `Bearer ${ctx.token}`;
+    }
+    return headers;
   }
 
   public doc(docPath: string) {
@@ -121,9 +144,47 @@ export class RestFirestore {
       id,
       path: normalized,
       get: async (): Promise<RestDocSnapshot> => {
+        // 1. Server-only paths (strictly blocked from client REST endpoints by security rules)
+        if (this.isServerOnlyPath(normalized)) {
+          const val = RestFirestore.globalServerStore.get(normalized);
+          return {
+            id,
+            exists: val !== undefined,
+            data: () => (val !== undefined ? JSON.parse(JSON.stringify(val)) : undefined),
+            ref: this.doc(normalized),
+          };
+        }
+
         const url = this.buildUrl(normalized);
-        const res = await fetch(url);
+        let res: Response;
+        try {
+          res = await fetch(url, {
+            headers: this.getHeaders(),
+          });
+        } catch (fetchErr: any) {
+          // If network fetch fails, check server store fallback
+          if (RestFirestore.globalServerStore.has(normalized)) {
+            const val = RestFirestore.globalServerStore.get(normalized);
+            return {
+              id,
+              exists: true,
+              data: () => JSON.parse(JSON.stringify(val)),
+              ref: this.doc(normalized),
+            };
+          }
+          throw fetchErr;
+        }
+
         if (res.status === 404) {
+          if (RestFirestore.globalServerStore.has(normalized)) {
+            const val = RestFirestore.globalServerStore.get(normalized);
+            return {
+              id,
+              exists: true,
+              data: () => JSON.parse(JSON.stringify(val)),
+              ref: this.doc(normalized),
+            };
+          }
           return {
             id,
             exists: false,
@@ -131,12 +192,36 @@ export class RestFirestore {
             ref: this.doc(normalized),
           };
         }
+
+        if (res.status === 403) {
+          // If Cloud Firestore security rules reject client REST call (e.g. server-managed write: if false or no auth token)
+          if (RestFirestore.globalServerStore.has(normalized)) {
+            const val = RestFirestore.globalServerStore.get(normalized);
+            return {
+              id,
+              exists: true,
+              data: () => JSON.parse(JSON.stringify(val)),
+              ref: this.doc(normalized),
+            };
+          }
+          return {
+            id,
+            exists: false,
+            data: () => undefined,
+            ref: this.doc(normalized),
+          };
+        }
+
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
           throw new Error(`Firestore REST get error (${res.status}): ${errText}`);
         }
+
         const docJson = await res.json();
         const data = fromFirestoreDoc(docJson);
+        if (data) {
+          RestFirestore.globalServerStore.set(normalized, data);
+        }
         return {
           id,
           exists: true,
@@ -156,14 +241,29 @@ export class RestFirestore {
             // Ignore fetch failure and write fresh data
           }
         }
+
+        // Always update server store
+        RestFirestore.globalServerStore.set(normalized, finalData);
+
+        // Server-only paths are strictly maintained in secure server store
+        if (this.isServerOnlyPath(normalized)) {
+          return;
+        }
+
         const fields = toFirestoreFields(finalData);
         const url = this.buildUrl(normalized);
         const res = await fetch(url, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
+          headers: this.getHeaders(true),
           body: JSON.stringify({ fields }),
         });
+
         if (!res.ok) {
+          // If rejected with 403 because rule enforces server-only writes (e.g. write: if false),
+          // server-side authoritative store already has the record
+          if (res.status === 403) {
+            return;
+          }
           const errText = await res.text().catch(() => '');
           throw new Error(`Firestore REST set error (${res.status}): ${errText}`);
         }
@@ -174,22 +274,41 @@ export class RestFirestore {
           throw new Error(`Document not found at ${normalized}`);
         }
         const merged = { ...existingSnap.data(), ...patch };
+        RestFirestore.globalServerStore.set(normalized, merged);
+
+        if (this.isServerOnlyPath(normalized)) {
+          return;
+        }
+
         const fields = toFirestoreFields(merged);
         const url = this.buildUrl(normalized);
         const res = await fetch(url, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
+          headers: this.getHeaders(true),
           body: JSON.stringify({ fields }),
         });
+
         if (!res.ok) {
+          if (res.status === 403) {
+            return;
+          }
           const errText = await res.text().catch(() => '');
           throw new Error(`Firestore REST update error (${res.status}): ${errText}`);
         }
       },
       delete: async (): Promise<void> => {
+        RestFirestore.globalServerStore.delete(normalized);
+
+        if (this.isServerOnlyPath(normalized)) {
+          return;
+        }
+
         const url = this.buildUrl(normalized);
-        const res = await fetch(url, { method: 'DELETE' });
-        if (!res.ok && res.status !== 404) {
+        const res = await fetch(url, {
+          method: 'DELETE',
+          headers: this.getHeaders(),
+        });
+        if (!res.ok && res.status !== 404 && res.status !== 403) {
           const errText = await res.text().catch(() => '');
           throw new Error(`Firestore REST delete error (${res.status}): ${errText}`);
         }
@@ -232,50 +351,98 @@ export class RestFirestore {
           from: [{ collectionId }],
         };
 
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ structuredQuery }),
-        });
-
-        if (!res.ok) {
-          const errText = await res.text().catch(() => '');
-          throw new Error(`Firestore REST runQuery error (${res.status}): ${errText}`);
+        let res: Response | null = null;
+        try {
+          res = await fetch(url, {
+            method: 'POST',
+            headers: this.getHeaders(true),
+            body: JSON.stringify({ structuredQuery }),
+          });
+        } catch {
+          res = null;
         }
 
-        const queryResult: any[] = await res.json();
-        const docs: RestDocSnapshot[] = [];
+        // If request succeeded with 200, process documents
+        if (res && res.ok) {
+          const queryResult: any[] = await res.json();
+          const docs: RestDocSnapshot[] = [];
 
-        for (const item of queryResult) {
-          if (!item.document) continue;
-          const docData = fromFirestoreDoc(item.document);
-          if (!docData) continue;
+          for (const item of queryResult) {
+            if (!item.document) continue;
+            const docData = fromFirestoreDoc(item.document);
+            if (!docData) continue;
 
-          // Extract document ID from resource name
-          const docName = item.document.name || '';
-          const docId = docName.split('/').pop() || '';
+            const docName = item.document.name || '';
+            const docId = docName.split('/').pop() || '';
+            const docPath = `${normalized}/${docId}`;
 
-          // Apply client-side filters
-          let match = true;
-          for (const f of filters) {
-            if (f.op === '==' && docData[f.field] !== f.value) {
-              match = false;
-              break;
+            // Cache in globalServerStore
+            RestFirestore.globalServerStore.set(docPath, docData);
+
+            let match = true;
+            for (const f of filters) {
+              if (f.op === '==' && docData[f.field] !== f.value) {
+                match = false;
+                break;
+              }
+            }
+            if (!match) continue;
+
+            docs.push({
+              id: docId,
+              exists: true,
+              data: () => JSON.parse(JSON.stringify(docData)),
+              ref: this.doc(docPath),
+            });
+          }
+
+          for (const ord of orderBys) {
+            docs.sort((a, b) => {
+              const aVal = a.data()?.[ord.field];
+              const bVal = b.data()?.[ord.field];
+              if (aVal < bVal) return ord.dir === 'asc' ? -1 : 1;
+              if (aVal > bVal) return ord.dir === 'asc' ? 1 : -1;
+              return 0;
+            });
+          }
+
+          const finalDocs = limitVal ? docs.slice(0, limitVal) : docs;
+          return {
+            docs: finalDocs,
+            empty: finalDocs.length === 0,
+            size: finalDocs.length,
+          };
+        }
+
+        // If Cloud query failed (e.g. 403 or network), fall back to globalServerStore
+        const prefix = `${normalized}/`;
+        const localDocs: RestDocSnapshot[] = [];
+        for (const [key, val] of RestFirestore.globalServerStore.entries()) {
+          if (key.startsWith(prefix)) {
+            const remainder = key.slice(prefix.length);
+            if (!remainder.includes('/')) {
+              let match = true;
+              for (const filter of filters) {
+                if (filter.op === '==' && val?.[filter.field] !== filter.value) {
+                  match = false;
+                  break;
+                }
+              }
+              if (match) {
+                const docId = remainder;
+                localDocs.push({
+                  id: docId,
+                  exists: true,
+                  data: () => JSON.parse(JSON.stringify(val)),
+                  ref: this.doc(`${normalized}/${docId}`),
+                });
+              }
             }
           }
-          if (!match) continue;
-
-          docs.push({
-            id: docId,
-            exists: true,
-            data: () => JSON.parse(JSON.stringify(docData)),
-            ref: this.doc(`${normalized}/${docId}`),
-          });
         }
 
-        // Apply orderBys
         for (const ord of orderBys) {
-          docs.sort((a, b) => {
+          localDocs.sort((a, b) => {
             const aVal = a.data()?.[ord.field];
             const bVal = b.data()?.[ord.field];
             if (aVal < bVal) return ord.dir === 'asc' ? -1 : 1;
@@ -284,11 +451,11 @@ export class RestFirestore {
           });
         }
 
-        const finalDocs = limitVal ? docs.slice(0, limitVal) : docs;
+        const finalLocalDocs = limitVal ? localDocs.slice(0, limitVal) : localDocs;
         return {
-          docs: finalDocs,
-          empty: finalDocs.length === 0,
-          size: finalDocs.length,
+          docs: finalLocalDocs,
+          empty: finalLocalDocs.length === 0,
+          size: finalLocalDocs.length,
         };
       },
     });

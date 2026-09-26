@@ -7,18 +7,6 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    match /users/{userId} {
-      allow read, write: if true;
-    }
-
-    match /users/{userId}/{collectionName}/{docId} {
-      allow read, write: if true;
-    }
-
-    match /users/{userId}/{subcollections=**} {
-      allow read, write: if true;
-    }
-
     // Hardened global helpers
     function isSignedIn() {
       return request.auth != null;
@@ -47,9 +35,9 @@ service cloud.firestore {
         (incoming().keys().hasAll(['id', 'email']) || incoming().keys().hasAll(['uid', 'email'])) &&
         (incoming().id == userId || incoming().uid == userId) &&
         incoming().email is string && incoming().email.size() <= 256 &&
-        !incoming().keys().hasAny(['password', 'accessToken', 'refreshToken', 'clientSecret', 'privateKey', 'encryptionKey']);
+        !incoming().keys().hasAny(['password', 'accessToken', 'refreshToken', 'clientSecret', 'privateKey', 'encryptionKey', 'role', 'isAdmin']);
       allow update: if isOwner(userId) &&
-        !incoming().keys().hasAny(['password', 'accessToken', 'refreshToken', 'clientSecret', 'privateKey', 'encryptionKey']) &&
+        !incoming().keys().hasAny(['password', 'accessToken', 'refreshToken', 'clientSecret', 'privateKey', 'encryptionKey', 'role', 'isAdmin']) &&
         incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt', 'lastLoginAt', 'provider', 'emailVerified']);
       allow delete: if isOwner(userId);
 
@@ -60,25 +48,25 @@ service cloud.firestore {
           incoming().keys().hasAll(['id', 'userId', 'provider', 'emailAddress', 'status']) &&
           incoming().userId == userId &&
           incoming().emailAddress is string && incoming().emailAddress.size() <= 256 &&
-          !incoming().keys().hasAny(['accessToken', 'refreshToken', 'accessTokenEncrypted', 'refreshTokenEncrypted']);
+          !incoming().keys().hasAny(['accessToken', 'refreshToken', 'accessTokenEncrypted', 'refreshTokenEncrypted', 'clientSecret', 'credentials']);
         allow update: if isOwner(userId) &&
           incoming().userId == existing().userId &&
-          !incoming().keys().hasAny(['accessToken', 'refreshToken', 'accessTokenEncrypted', 'refreshTokenEncrypted']);
+          !incoming().keys().hasAny(['accessToken', 'refreshToken', 'accessTokenEncrypted', 'refreshTokenEncrypted', 'clientSecret', 'credentials']);
         allow delete: if isOwner(userId);
 
-        // Account-scoped emails (Step 4 Gmail synchronization storage)
+        // Account-scoped emails (Step 4 Gmail synchronization storage - read only for owner, server writes)
         match /emails/{emailId} {
           allow read, list: if isOwner(userId);
           allow write: if false; // Server-managed via Admin SDK
         }
 
-        // Account-scoped threads (Step 4 Gmail synchronization storage)
+        // Account-scoped threads (Step 4 Gmail synchronization storage - read only for owner, server writes)
         match /threads/{threadId} {
           allow read, list: if isOwner(userId);
           allow write: if false; // Server-managed via Admin SDK
         }
 
-        // Account-scoped syncState (Step 4 Gmail synchronization storage)
+        // Account-scoped syncState (Step 4 Gmail synchronization storage - read only for owner, server writes)
         match /syncState/{stateId} {
           allow read, list: if isOwner(userId);
           allow write: if false; // Server-managed via Admin SDK
@@ -87,7 +75,8 @@ service cloud.firestore {
 
       // 1b. Server-only Provider Credentials (Admin SDK only, client read/write strictly forbidden)
       match /providerCredentials/{accountId} {
-        allow read, write: if false;
+        allow read: if false;
+        allow write: if false;
       }
 
       // 2. Email sync state (Server-managed only via Firebase Admin SDK)
@@ -109,7 +98,7 @@ service cloud.firestore {
         allow delete: if isOwner(userId);
       }
 
-      // 4. Email threads
+      // 4. Email threads (Aggregated conversation threads)
       match /emailThreads/{threadId} {
         allow read, list: if isOwner(userId);
         allow create, update: if isOwner(userId) && isValidId(threadId) && incoming().userId == userId;
@@ -120,6 +109,19 @@ service cloud.firestore {
       match /attachments/{attachmentId} {
         allow read, list: if isOwner(userId);
         allow create, update: if isOwner(userId) && isValidId(attachmentId) && incoming().userId == userId;
+        allow delete: if isOwner(userId);
+      }
+
+      match /driveAttachments/{attachmentId} {
+        allow read, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(attachmentId) && incoming().userId == userId;
+        allow delete: if isOwner(userId);
+      }
+
+      // 5b. Calendar Events
+      match /calendarEvents/{eventId} {
+        allow read, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(eventId) && incoming().userId == userId;
         allow delete: if isOwner(userId);
       }
 
@@ -216,7 +218,33 @@ service cloud.firestore {
         allow create, update, delete: if isOwner(userId) && isValidId(itemId) && (request.method == 'delete' || incoming().userId == userId);
       }
 
-      // 19. Audit logs (Immutable)
+      match /quarantine/{itemId} {
+        allow read, list: if isOwner(userId);
+        allow create, update, delete: if isOwner(userId) && isValidId(itemId) && (request.method == 'delete' || incoming().userId == userId);
+      }
+
+      // 19. User Settings
+      match /settings/{settingId} {
+        allow read, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(settingId);
+        allow delete: if isOwner(userId);
+      }
+
+      // 20. Whitelist / Blacklist
+      match /whitelistBlacklist/{entryId} {
+        allow read, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(entryId) && incoming().userId == userId;
+        allow delete: if isOwner(userId);
+      }
+
+      // 21. Security alerts
+      match /alerts/{alertId} {
+        allow read, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(alertId) && incoming().userId == userId;
+        allow delete: if isOwner(userId);
+      }
+
+      // 22. Audit logs (Read-only for user, immutable)
       match /auditLogs/{logId} {
         allow read, list: if isOwner(userId);
         allow create: if isOwner(userId) && isValidId(logId) &&
@@ -225,13 +253,15 @@ service cloud.firestore {
         allow update, delete: if false; // Immutable audit log
       }
 
-      // 20. Highly sensitive server-only collections (tokens, refresh tokens, internal jobs)
+      // 23. Server secrets & processing jobs (Strictly denied to clients)
       match /serverSecrets/{secretId} {
-        allow read, write: if false;
+        allow read: if false;
+        allow write: if false;
       }
 
       match /processingJobs/{jobId} {
-        allow read, write: if false;
+        allow read: if false;
+        allow write: if false;
       }
     }
   }

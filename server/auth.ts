@@ -2,6 +2,7 @@ import express from 'express';
 import { getAdminAuth } from './firebaseAdmin';
 import { FirestoreDb } from './firestoreDb';
 import { FirestoreUserDoc } from '../src/types/firestore';
+import { runWithRequestAuth } from './authContext';
 
 export interface AuthenticatedUser {
   uid: string;
@@ -69,7 +70,9 @@ export async function authMiddleware(req: express.Request, res: express.Response
       isDemo: false,
     };
 
-    next();
+    return runWithRequestAuth({ token, uid }, () => {
+      next();
+    });
   } catch (err: any) {
     // CRITICAL: Return structured JSON 401 without exposing tokens or internal traces
     return res.status(401).json({
