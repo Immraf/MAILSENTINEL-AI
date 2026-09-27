@@ -1,6 +1,4 @@
 import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
 
 /**
  * MailSentinel AI - Cryptographic Credential Vault
@@ -9,6 +7,8 @@ import path from 'path';
  * - Refresh tokens NEVER stored in plaintext
  * - Refresh tokens NEVER exposed to browser
  * - Authenticated ciphertext with tamper detection
+ * - Master encryption key supplied strictly via server-side environment variables
+ * - Zero fallback to hardcoded keys, zero silent random key generation
  */
 
 const ALGORITHM = 'aes-256-gcm';
@@ -19,53 +19,59 @@ const KEY_LENGTH = 32; // 256-bit AES key
 let masterKeyCache: Buffer | null = null;
 
 /**
+ * Resets the cached master key (used for testing configuration states).
+ */
+export function clearMasterKeyCache(): void {
+  masterKeyCache = null;
+}
+
+/**
+ * Explicitly sets the cached master key for testing environments.
+ */
+export function setMasterKeyForTesting(keyHexOrString: string | null): void {
+  if (keyHexOrString === null) {
+    masterKeyCache = null;
+    return;
+  }
+  const cleanKey = keyHexOrString.trim();
+  if (cleanKey.length === 64 && /^[0-9a-fA-F]+$/.test(cleanKey)) {
+    masterKeyCache = Buffer.from(cleanKey, 'hex');
+  } else {
+    masterKeyCache = crypto.createHash('sha256').update(cleanKey).digest();
+  }
+}
+
+/**
  * Resolves or derives the 256-bit AES Master Encryption Key.
  * Checks:
- * 1. process.env.TOKEN_ENCRYPTION_KEY (hex or base64 or raw string)
- * 2. process.env.GOOGLE_CLIENT_SECRET / FIREBASE_CONFIG salt
- * 3. Secure disk key file in data/.master_key
+ * 1. process.env.MASTER_TOKEN_KEY
+ * 2. process.env.TOKEN_ENCRYPTION_KEY
+ * 3. process.env.ENCRYPTION_SECRET
+ *
+ * Strictly fails if not configured.
+ * Never silently generates a random key.
+ * Never reads from local data files.
+ * Never falls back to a hardcoded salt.
  */
 export function getMasterKey(): Buffer {
   if (masterKeyCache) return masterKeyCache;
 
-  const envKey = process.env.TOKEN_ENCRYPTION_KEY || process.env.ENCRYPTION_SECRET;
-  if (envKey) {
-    if (envKey.length === 64 && /^[0-9a-fA-F]+$/.test(envKey)) {
-      masterKeyCache = Buffer.from(envKey, 'hex');
-    } else {
-      masterKeyCache = crypto.createHash('sha256').update(envKey).digest();
-    }
-    return masterKeyCache;
+  const envKey =
+    process.env.MASTER_TOKEN_KEY ||
+    process.env.TOKEN_ENCRYPTION_KEY ||
+    process.env.ENCRYPTION_SECRET;
+
+  if (!envKey || !envKey.trim()) {
+    throw new Error('MASTER_TOKEN_KEY is not configured.');
   }
 
-  // Persistent key file storage in data directory
-  const keyDir = path.join(process.cwd(), 'data');
-  const keyFile = path.join(keyDir, '.master_token_key');
-
-  try {
-    if (!fs.existsSync(keyDir)) {
-      fs.mkdirSync(keyDir, { recursive: true });
-    }
-
-    if (fs.existsSync(keyFile)) {
-      const hex = fs.readFileSync(keyFile, 'utf8').trim();
-      if (hex && hex.length === 64) {
-        masterKeyCache = Buffer.from(hex, 'hex');
-        return masterKeyCache;
-      }
-    }
-
-    // Generate fresh random 256-bit master key
-    const newKey = crypto.randomBytes(KEY_LENGTH);
-    fs.writeFileSync(keyFile, newKey.toString('hex'), { mode: 0o600 });
-    masterKeyCache = newKey;
-    return masterKeyCache;
-  } catch {
-    // Fallback: Deterministic derivation from project environment salt
-    const salt = process.env.PROJECT_ID || process.env.GOOGLE_CLIENT_ID || 'mailsentinel-kms-vault-2026';
-    masterKeyCache = crypto.createHash('sha256').update(`mailsentinel-encryption-key-${salt}`).digest();
-    return masterKeyCache;
+  const cleanKey = envKey.trim();
+  if (cleanKey.length === 64 && /^[0-9a-fA-F]+$/.test(cleanKey)) {
+    masterKeyCache = Buffer.from(cleanKey, 'hex');
+  } else {
+    masterKeyCache = crypto.createHash('sha256').update(cleanKey).digest();
   }
+  return masterKeyCache;
 }
 
 /**
@@ -96,7 +102,7 @@ export function encryptToken(plaintext: string): string {
 export function decryptToken(encryptedString: string): string {
   if (!encryptedString) return '';
   if (!isEncrypted(encryptedString)) {
-    // If plaintext legacy token was passed, return it or throw depending on policy
+    // If plaintext legacy token was passed, return it
     return encryptedString;
   }
 

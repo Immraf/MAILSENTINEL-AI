@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Security & Master key files (never commit)
+data/.master_token_key
+*.key
+*.pem
+secrets/

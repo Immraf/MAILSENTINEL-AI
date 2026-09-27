@@ -12,11 +12,13 @@
  */
 
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { db, UserRecord, loadDatabase } from '../server/db';
 import {
   checkAndConsumeAuthCode,
 } from '../server/oauth';
-import { encryptToken, decryptToken } from '../server/encryption';
+import { encryptToken, decryptToken, getMasterKey, clearMasterKeyCache } from '../server/encryption';
 import { isInQuietHours, evaluateAndDispatchNotification } from '../server/notifications';
 import { searchUserEmails } from '../server/search';
 import { analyzeEmailSecurityHeuristics } from '../src/utils/securityEngine';
@@ -27,6 +29,10 @@ import { fetchAndPersistGmailMessage, isSyncJobRunning } from '../server/gmailSy
 import { sanitizeEmailHtml } from '../server/htmlSanitizer';
 import { setAdminFirestore } from '../server/firebaseAdmin';
 import { InMemoryFirestore } from '../server/inMemoryFirestore';
+
+// Configure dedicated test-only encryption key for automated test runner
+const TEST_MASTER_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+process.env.MASTER_TOKEN_KEY = TEST_MASTER_KEY;
 
 // Initialize In-Memory Firestore mock for testing environment
 const mockFirestore = new InMemoryFirestore();
@@ -224,6 +230,40 @@ async function testOAuthAndEncryption() {
       threw = true;
     }
     assert(threw, 'Decryption of tampered ciphertext must throw MAC verification failure');
+  });
+
+  await runTest('OAUTH', 'MASTER_TOKEN_KEY is required and fails clearly when unconfigured without random/file fallback', () => {
+    const savedMaster = process.env.MASTER_TOKEN_KEY;
+    const savedTokenKey = process.env.TOKEN_ENCRYPTION_KEY;
+    const savedSecret = process.env.ENCRYPTION_SECRET;
+
+    delete process.env.MASTER_TOKEN_KEY;
+    delete process.env.TOKEN_ENCRYPTION_KEY;
+    delete process.env.ENCRYPTION_SECRET;
+    clearMasterKeyCache();
+
+    let errorThrown = false;
+    let errorMessage = '';
+    try {
+      getMasterKey();
+    } catch (err: any) {
+      errorThrown = true;
+      errorMessage = err?.message || '';
+    }
+
+    // Restore environment
+    process.env.MASTER_TOKEN_KEY = savedMaster;
+    if (savedTokenKey) process.env.TOKEN_ENCRYPTION_KEY = savedTokenKey;
+    if (savedSecret) process.env.ENCRYPTION_SECRET = savedSecret;
+    clearMasterKeyCache();
+
+    assert(errorThrown, 'getMasterKey() must throw when MASTER_TOKEN_KEY is not configured');
+    assert(errorMessage.includes('MASTER_TOKEN_KEY is not configured'), 'Error message must clearly state MASTER_TOKEN_KEY is not configured');
+  });
+
+  await runTest('OAUTH', 'data/.master_token_key does not exist in repository package', () => {
+    const keyFile = path.join(process.cwd(), 'data', '.master_token_key');
+    assert(!fs.existsSync(keyFile), 'data/.master_token_key must not exist in repository or project package');
   });
 
   await runTest('OAUTH', 'Account limit enforced at 10 connected accounts in Firestore', async () => {
