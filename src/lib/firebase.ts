@@ -13,14 +13,31 @@ import {
   setPersistence,
   browserLocalPersistence,
 } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  getFirestore,
+  Firestore,
+} from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase App
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore with optional database ID
-export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
+// Initialize Firestore with robust connection settings for iframe/preview environments
+let firestoreInstance: Firestore;
+try {
+  firestoreInstance = initializeFirestore(
+    app,
+    {
+      experimentalAutoDetectLongPolling: true,
+    },
+    (firebaseConfig as any).firestoreDatabaseId
+  );
+} catch {
+  firestoreInstance = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
+}
+
+export const db = firestoreInstance;
 
 // Initialize Firebase Auth
 export const auth = getAuth(app);
@@ -40,18 +57,6 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 let isSigningIn = false;
 let activeSignInPromise: Promise<{ user: User } | null> | null = null;
-
-// Test Firestore connection on boot
-export async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Please check your Firebase configuration or offline mode.');
-    }
-  }
-}
-testConnection();
 
 /**
  * Register with Email and Password using Firebase Authentication
