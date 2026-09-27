@@ -74,6 +74,36 @@ export function getMasterKey(): Buffer {
   return masterKeyCache;
 }
 
+export class CredentialDecryptionError extends Error {
+  public readonly code = 'CREDENTIAL_DECRYPTION_ERROR';
+
+  constructor(message = 'Provider credential is invalid or requires reauthorization.') {
+    super(message);
+    this.name = 'CredentialDecryptionError';
+    Object.setPrototypeOf(this, CredentialDecryptionError.prototype);
+  }
+}
+
+/**
+ * Checks if a string is encrypted using the MailSentinel vault format.
+ * Format: enc:v1:<24-hex-iv>:<32-hex-authtag>:<hex-ciphertext>
+ */
+export function isEncrypted(value: string): boolean {
+  if (typeof value !== 'string') return false;
+  const parts = value.split(':');
+  return (
+    parts.length === 5 &&
+    parts[0] === 'enc' &&
+    parts[1] === 'v1' &&
+    parts[2].length === IV_LENGTH * 2 &&
+    /^[0-9a-fA-F]+$/.test(parts[2]) &&
+    parts[3].length === TAG_LENGTH * 2 &&
+    /^[0-9a-fA-F]+$/.test(parts[3]) &&
+    parts[4].length > 0 &&
+    /^[0-9a-fA-F]+$/.test(parts[4])
+  );
+}
+
 /**
  * Encrypts a plaintext secret (OAuth refresh or access token) with AES-256-GCM.
  * Output format: enc:v1:<ivHex>:<tagHex>:<cipherHex>
@@ -98,40 +128,57 @@ export function encryptToken(plaintext: string): string {
 /**
  * Decrypts an AES-256-GCM encrypted token.
  * Validates cryptographic authentication tag to detect any tampering or bit-flips.
+ * Strictly rejects plaintext credentials, malformed envelopes, and wrong-key payloads.
+ * Never exposes token values, encryption keys, or internal stack traces.
  */
 export function decryptToken(encryptedString: string): string {
-  if (!encryptedString) return '';
-  if (!isEncrypted(encryptedString)) {
-    // If plaintext legacy token was passed, return it
-    return encryptedString;
+  if (!encryptedString || typeof encryptedString !== 'string' || !encryptedString.trim()) {
+    throw new CredentialDecryptionError('Provider credential is empty or invalid.');
   }
 
-  const parts = encryptedString.split(':');
+  const trimmed = encryptedString.trim();
+
+  // Strictly reject plaintext tokens
+  if (!isEncrypted(trimmed)) {
+    throw new CredentialDecryptionError('Provider credential is not encrypted or uses an invalid format.');
+  }
+
+  const parts = trimmed.split(':');
   if (parts.length !== 5 || parts[0] !== 'enc' || parts[1] !== 'v1') {
-    throw new Error('Invalid encrypted token envelope structure.');
+    throw new CredentialDecryptionError('Invalid encrypted credential envelope structure.');
   }
 
-  const iv = Buffer.from(parts[2], 'hex');
-  const authTag = Buffer.from(parts[3], 'hex');
-  const ciphertext = Buffer.from(parts[4], 'hex');
+  let iv: Buffer;
+  let authTag: Buffer;
+  let ciphertext: Buffer;
+  try {
+    iv = Buffer.from(parts[2], 'hex');
+    authTag = Buffer.from(parts[3], 'hex');
+    ciphertext = Buffer.from(parts[4], 'hex');
+    if (iv.length !== IV_LENGTH || authTag.length !== TAG_LENGTH) {
+      throw new Error();
+    }
+  } catch {
+    throw new CredentialDecryptionError('Encrypted credential envelope contains invalid components.');
+  }
 
   const key = getMasterKey();
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv, { authTagLength: TAG_LENGTH });
-  decipher.setAuthTag(authTag);
+  try {
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv, { authTagLength: TAG_LENGTH });
+    decipher.setAuthTag(authTag);
 
-  const decrypted = Buffer.concat([
-    decipher.update(ciphertext),
-    decipher.final(),
-  ]);
+    const decrypted = Buffer.concat([
+      decipher.update(ciphertext),
+      decipher.final(),
+    ]);
 
-  return decrypted.toString('utf8');
-}
-
-/**
- * Checks if a string is encrypted using the MailSentinel vault format.
- */
-export function isEncrypted(value: string): boolean {
-  return typeof value === 'string' && value.startsWith('enc:v1:') && value.split(':').length === 5;
+    return decrypted.toString('utf8');
+  } catch (err: any) {
+    if (err instanceof CredentialDecryptionError) {
+      throw err;
+    }
+    throw new CredentialDecryptionError('Provider credential authentication failed or wrong key.');
+  }
 }
 
 /**

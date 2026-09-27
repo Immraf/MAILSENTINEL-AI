@@ -14,7 +14,7 @@
  */
 
 import { FirestoreDb } from './firestoreDb';
-import { decryptToken, encryptToken } from './encryption';
+import { decryptToken, encryptToken, CredentialDecryptionError } from './encryption';
 import { sanitizeEmailHtml } from './htmlSanitizer';
 import {
   NormalizedEmail,
@@ -177,8 +177,26 @@ export async function getValidGmailAccessToken(
   const encAccess = creds.accessTokenEncrypted;
   const encRefresh = creds.refreshTokenEncrypted;
 
-  let accessToken = encAccess ? decryptToken(encAccess) : '';
-  const refreshToken = encRefresh ? decryptToken(encRefresh) : '';
+  let accessToken = '';
+  let refreshToken = '';
+
+  try {
+    if (encAccess) {
+      accessToken = decryptToken(encAccess);
+    }
+  } catch (err: any) {
+    console.warn(`[GmailSync] Access token for account ${accountId} failed decryption or is unencrypted.`);
+  }
+
+  try {
+    if (encRefresh) {
+      refreshToken = decryptToken(encRefresh);
+    }
+  } catch (err: any) {
+    console.warn(`[GmailSync] Refresh token for account ${accountId} failed decryption or is unencrypted. Reauthorization required.`);
+    await markReauthorizationRequired(userId, accountId, 'Provider credential format is invalid or unencrypted. Please reconnect Gmail.');
+    return null;
+  }
 
   // Test current access token against Gmail profile API
   if (accessToken) {

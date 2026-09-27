@@ -18,14 +18,14 @@ import { db, UserRecord, loadDatabase } from '../server/db';
 import {
   checkAndConsumeAuthCode,
 } from '../server/oauth';
-import { encryptToken, decryptToken, getMasterKey, clearMasterKeyCache } from '../server/encryption';
+import { encryptToken, decryptToken, getMasterKey, clearMasterKeyCache, CredentialDecryptionError, setMasterKeyForTesting, isEncrypted } from '../server/encryption';
 import { isInQuietHours, evaluateAndDispatchNotification } from '../server/notifications';
 import { searchUserEmails } from '../server/search';
 import { analyzeEmailSecurityHeuristics } from '../src/utils/securityEngine';
 import { Email, EmailAccount, NotificationSettings } from '../src/types';
 import { rateLimiter, resetRateLimits } from '../server/rateLimit';
 import { FirestoreDb, StorageUnavailableError } from '../server/firestoreDb';
-import { fetchAndPersistGmailMessage, isSyncJobRunning } from '../server/gmailSync';
+import { fetchAndPersistGmailMessage, isSyncJobRunning, getValidGmailAccessToken } from '../server/gmailSync';
 import { sanitizeEmailHtml } from '../server/htmlSanitizer';
 import { setAdminFirestore } from '../server/firebaseAdmin';
 import { InMemoryFirestore } from '../server/inMemoryFirestore';
@@ -230,6 +230,152 @@ async function testOAuthAndEncryption() {
       threw = true;
     }
     assert(threw, 'Decryption of tampered ciphertext must throw MAC verification failure');
+  });
+
+  // TEST 1: Valid encrypted token round-trip
+  await runTest('OAUTH', 'TEST 1: Valid encrypted token decrypts successfully in server memory', () => {
+    const rawToken = 'ya29.sample_oauth_access_token_secure_12345';
+    const encrypted = encryptToken(rawToken);
+    assert(isEncrypted(encrypted), 'Must match encrypted envelope format');
+    const decrypted = decryptToken(encrypted);
+    assert(decrypted === rawToken, 'Decrypted token must match original plaintext');
+  });
+
+  // TEST 2: Plaintext token rejection
+  await runTest('OAUTH', 'TEST 2: Plaintext OAuth token is strictly rejected and throws CredentialDecryptionError', () => {
+    const plainToken = 'ya29.a0AfH6SMDh_PLAINTEXT_OAUTH_TOKEN_NEVER_ALLOWED';
+    let threw = false;
+    let thrownError: any = null;
+    try {
+      decryptToken(plainToken);
+    } catch (err: any) {
+      threw = true;
+      thrownError = err;
+    }
+    assert(threw, 'decryptToken must reject plaintext tokens');
+    assert(thrownError instanceof CredentialDecryptionError, 'Error must be CredentialDecryptionError');
+    assert(thrownError.code === 'CREDENTIAL_DECRYPTION_ERROR', 'Error code must be CREDENTIAL_DECRYPTION_ERROR');
+    assert(!thrownError.message.includes(plainToken), 'Error message must not expose the token value');
+  });
+
+  // TEST 3: Malformed encrypted value rejection
+  await runTest('OAUTH', 'TEST 3: Malformed encrypted value is strictly rejected and throws CredentialDecryptionError', () => {
+    const malformedCases = [
+      'enc:v1:not-enough-parts',
+      'enc:v2:1234:5678:9abc',
+      'raw:v1:0123456789abcdef01234567:0123456789abcdef0123456789abcdef:1234',
+      'enc:v1:shortiv:shorttag:ciphertext',
+      'enc:v1:zzzzzzzzzzzzzzzzzzzzzzzz:zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz:1234',
+    ];
+
+    for (const malformed of malformedCases) {
+      let threw = false;
+      try {
+        decryptToken(malformed);
+      } catch (err: any) {
+        threw = true;
+        assert(err instanceof CredentialDecryptionError, `Malformed '${malformed}' must throw CredentialDecryptionError`);
+      }
+      assert(threw, `Malformed envelope '${malformed}' must be rejected`);
+    }
+  });
+
+  // TEST 4: Wrong encryption key rejection
+  await runTest('OAUTH', 'TEST 4: Credentials decrypted with wrong key trigger authentication failure', () => {
+    const rawToken = 'ya29.secret_token_to_test_wrong_key';
+    const encrypted = encryptToken(rawToken);
+
+    // Switch to different master key
+    const differentKey = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
+    setMasterKeyForTesting(differentKey);
+
+    let threw = false;
+    let error: any = null;
+    try {
+      decryptToken(encrypted);
+    } catch (err: any) {
+      threw = true;
+      error = err;
+    }
+
+    // Reset back to original test key
+    setMasterKeyForTesting(null);
+    clearMasterKeyCache();
+
+    assert(threw, 'Decryption with wrong key must throw');
+    assert(error instanceof CredentialDecryptionError, 'Must throw CredentialDecryptionError');
+    assert(decryptToken(encrypted) === rawToken, 'Decryption with correct key must succeed after reset');
+  });
+
+  // TEST 5: Empty/invalid credential rejection
+  await runTest('OAUTH', 'TEST 5: Empty or whitespace credential throws CredentialDecryptionError', () => {
+    const emptyCases = ['', '   ', null as any, undefined as any];
+    for (const badVal of emptyCases) {
+      let threw = false;
+      try {
+        decryptToken(badVal);
+      } catch (err: any) {
+        threw = true;
+        assert(err instanceof CredentialDecryptionError, 'Empty credential must throw CredentialDecryptionError');
+      }
+      assert(threw, 'Empty credential must throw');
+    }
+  });
+
+  // TEST 6: Encrypted token round-trip
+  await runTest('OAUTH', 'TEST 6: Encrypted token round-trip preserves original token data', () => {
+    const tokens = [
+      '1//04_SAMPLE_LONG_REFRESH_TOKEN_WITH_SPECIAL_CHARS_!@#$%^&*()',
+      'ya29.a0AfH6SMDh_short_access_token',
+      'eyJh...jwt.style.bearer.token',
+    ];
+    for (const t of tokens) {
+      const enc = encryptToken(t);
+      assert(enc !== t, 'Ciphertext must differ from plaintext');
+      assert(isEncrypted(enc), 'Ciphertext must be recognized as encrypted');
+      assert(decryptToken(enc) === t, 'Decrypted token must exactly match original');
+    }
+  });
+
+  // TEST 7: Gmail synchronization with plaintext credential fails safely and triggers reauthorization
+  await runTest('OAUTH', 'TEST 7: Gmail synchronization with plaintext credential fails safely and requires reauth', async () => {
+    const plainTestUser = 'user-plain-test-' + Date.now();
+    const plainTestAccount = 'acc-plain-test-' + Date.now();
+
+    await FirestoreDb.addAccount(plainTestUser, {
+      id: plainTestAccount,
+      provider: 'gmail',
+      emailAddress: 'victim.plain@gmail.com',
+      displayName: 'Victim Plain',
+      status: 'Connected',
+      lastSyncedAt: new Date().toISOString(),
+      totalEmails: 0,
+      threatsDetected: 0,
+      isPrimary: true,
+    });
+
+    // Save PLAINTEXT credentials in Firestore (simulating legacy or attacked state)
+    await FirestoreDb.saveProviderCredentials(plainTestUser, plainTestAccount, {
+      provider: 'gmail',
+      emailAddress: 'victim.plain@gmail.com',
+      accessTokenEncrypted: 'ya29.PLAINTEXT_UNENCRYPTED_ACCESS_TOKEN',
+      refreshTokenEncrypted: '1//04_PLAINTEXT_UNENCRYPTED_REFRESH_TOKEN',
+    });
+
+    // Attempt to retrieve token for Gmail sync
+    const tokenResult = await getValidGmailAccessToken(plainTestUser, plainTestAccount);
+
+    // Must NOT return plaintext token or use it
+    assert(tokenResult === null, 'getValidGmailAccessToken must return null on plaintext credentials');
+
+    // Account and sync state must be marked as requiring reauthorization
+    const account = await FirestoreDb.getAccountById(plainTestUser, plainTestAccount);
+    assert(account !== null, 'Account must exist');
+    assert(account!.status === 'Needs Reauthentication', 'Account status must be Needs Reauthentication');
+
+    const syncState = await FirestoreDb.getSyncState(plainTestUser, plainTestAccount);
+    assert(syncState !== null, 'Sync state must exist');
+    assert(syncState!.status === 'reauthorization_required', 'Sync state status must be reauthorization_required');
   });
 
   await runTest('OAUTH', 'MASTER_TOKEN_KEY is required and fails clearly when unconfigured without random/file fallback', () => {
