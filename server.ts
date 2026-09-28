@@ -599,35 +599,36 @@ async function startServer() {
   });
 
   // Intelligence Pipeline: Separately Persisted Analysis
-  app.get('/api/emails/:id/analysis', authMiddleware, (req, res) => {
+  app.get('/api/emails/:id/analysis', authMiddleware, async (req, res) => {
     const user = (req as AuthenticatedRequest).user;
-    const analysis = db.getAnalysis(user.id, req.params.id);
+    const uid = user.uid || (user as any).id;
+    let analysis = (await FirestoreDb.getAiAnalysis(uid, req.params.id).catch(() => null)) || db.getAnalysis(uid, req.params.id);
     if (!analysis) {
-      const email = db.getEmailById(user.id, req.params.id);
+      const email = (await FirestoreDb.getEmailById(uid, req.params.id).catch(() => null)) || db.getEmailById(uid, req.params.id);
       if (!email) {
         return res.status(404).json({ error: { code: 'EMAIL_NOT_FOUND', message: 'Email not found.' } });
       }
       return res.json({
         id: `analysis-${email.id}`,
         emailId: email.id,
-        userId: user.id,
+        userId: uid,
         version: PIPELINE_ANALYSIS_VERSION,
-        analyzedAt: (email.aiAnalysis as any).processedAt || new Date().toISOString(),
-        summary: email.aiAnalysis.summary,
-        category: email.aiAnalysis.category,
-        priority: email.aiAnalysis.priority,
-        priorityScore: email.aiAnalysis.priorityScore,
-        urgency: email.aiAnalysis.urgency || 'Medium',
-        actionRequired: email.aiAnalysis.actionRequired,
-        recommendedAction: email.aiAnalysis.recommendedAction,
-        deadline: email.aiAnalysis.deadline,
-        tasks: email.aiAnalysis.tasks || [],
-        extractedEntities: email.aiAnalysis.extractedEntities,
-        whyPriorityReasons: email.aiAnalysis.whyPriorityReasons,
-        securityClassification: email.securityAnalysis.classification,
-        securityRiskScore: email.securityAnalysis.riskScore,
-        securityIndicators: email.securityAnalysis.indicators,
-        notificationDecision: email.aiAnalysis.notificationDecision || {
+        analyzedAt: (email.aiAnalysis as any)?.processedAt || new Date().toISOString(),
+        summary: email.aiAnalysis?.summary || email.snippet,
+        category: email.aiAnalysis?.category || 'business',
+        priority: email.aiAnalysis?.priority || email.priority || 'Medium',
+        priorityScore: email.aiAnalysis?.priorityScore || 50,
+        urgency: email.aiAnalysis?.urgency || 'Medium',
+        actionRequired: email.aiAnalysis?.actionRequired || false,
+        recommendedAction: email.aiAnalysis?.recommendedAction || 'None',
+        deadline: email.aiAnalysis?.deadline || null,
+        tasks: email.aiAnalysis?.tasks || [],
+        extractedEntities: email.aiAnalysis?.extractedEntities || [],
+        whyPriorityReasons: email.aiAnalysis?.whyPriorityReasons || [],
+        securityClassification: email.securityAnalysis?.classification || 'SAFE',
+        securityRiskScore: email.securityAnalysis?.riskScore || 0,
+        securityIndicators: email.securityAnalysis?.indicators || [],
+        notificationDecision: email.aiAnalysis?.notificationDecision || {
           shouldNotify: false,
           channel: 'silent',
           reason: 'Loaded from existing email intelligence view',
@@ -640,12 +641,13 @@ async function startServer() {
   // Intelligence Pipeline: Controlled On-Demand Reprocessing
   app.post('/api/emails/:id/reprocess', authMiddleware, async (req, res) => {
     const user = (req as AuthenticatedRequest).user;
-    const email = db.getEmailById(user.id, req.params.id);
+    const uid = user.uid || (user as any).id;
+    const email = (await FirestoreDb.getEmailById(uid, req.params.id).catch(() => null)) || db.getEmailById(uid, req.params.id);
     if (!email) {
       return res.status(404).json({ error: { code: 'EMAIL_NOT_FOUND', message: 'Email not found.' } });
     }
     try {
-      const result = await processEmailThroughIntelligencePipeline(email, user.id, {
+      const result = await processEmailThroughIntelligencePipeline(email, uid, {
         forceReprocess: true,
       });
       res.json({
@@ -662,20 +664,26 @@ async function startServer() {
   // Intelligence Pipeline: Batch Processing for all unanalyzed emails
   app.post('/api/emails/process-batch', authMiddleware, async (req, res) => {
     const user = (req as AuthenticatedRequest).user;
-    const emails = db.getEmails(user.id);
+    const uid = user.uid || (user as any).id;
+    const firestoreEmails = await FirestoreDb.getEmails(uid).catch(() => []);
+    const localEmails = db.getEmails(uid);
+    const emailMap = new Map<string, Email>();
+    for (const e of firestoreEmails) emailMap.set(e.id, e as Email);
+    for (const e of localEmails) if (!emailMap.has(e.id)) emailMap.set(e.id, e);
+    const emails = Array.from(emailMap.values());
     const forceAll = req.body?.forceAll === true;
     let processedCount = 0;
     let skippedCount = 0;
     const results = [];
 
     for (const email of emails) {
-      const existing = db.getAnalysis(user.id, email.id);
+      const existing = (await FirestoreDb.getAiAnalysis(uid, email.id).catch(() => null)) || db.getAnalysis(uid, email.id);
       if (!forceAll && existing && existing.version === PIPELINE_ANALYSIS_VERSION) {
         skippedCount++;
         continue;
       }
       try {
-        const pipelineRes = await processEmailThroughIntelligencePipeline(email, user.id, {
+        const pipelineRes = await processEmailThroughIntelligencePipeline(email, uid, {
           forceReprocess: forceAll,
           skipNotifications: true,
         });
@@ -713,35 +721,41 @@ async function startServer() {
   // ==========================================================================
   // 6. PRODUCTIVITY VIEWS: NEEDS ATTENTION, DEADLINES, TASKS
   // ==========================================================================
-  app.get('/api/attention', authMiddleware, (req, res) => {
+  app.get('/api/attention', authMiddleware, async (req, res) => {
     const user = (req as AuthenticatedRequest).user;
-    const emails = db.getEmails(user.id);
+    const uid = user.uid || (user as any).id;
+    const firestoreEmails = await FirestoreDb.getEmails(uid).catch(() => []);
+    const emails = firestoreEmails.length > 0 ? firestoreEmails : db.getEmails(uid);
     const attentionList = emails.filter(
       (e) =>
-        e.aiAnalysis.actionRequired ||
-        e.aiAnalysis.priority === 'Critical' ||
-        e.aiAnalysis.priority === 'High' ||
-        Boolean(e.aiAnalysis.deadline)
+        e.aiAnalysis?.actionRequired ||
+        e.aiAnalysis?.priority === 'Critical' ||
+        e.aiAnalysis?.priority === 'High' ||
+        Boolean(e.aiAnalysis?.deadline)
     );
     res.json(attentionList);
   });
 
-  app.get('/api/deadlines', authMiddleware, (req, res) => {
+  app.get('/api/deadlines', authMiddleware, async (req, res) => {
     const user = (req as AuthenticatedRequest).user;
-    const emails = db.getEmails(user.id);
+    const uid = user.uid || (user as any).id;
+    const firestoreEmails = await FirestoreDb.getEmails(uid).catch(() => []);
+    const emails = firestoreEmails.length > 0 ? firestoreEmails : db.getEmails(uid);
     const deadlines = emails
-      .filter((e) => Boolean(e.aiAnalysis.deadline))
+      .filter((e) => Boolean(e.aiAnalysis?.deadline))
       .sort((a, b) => new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime());
     res.json(deadlines);
   });
 
-  app.get('/api/tasks', authMiddleware, (req, res) => {
+  app.get('/api/tasks', authMiddleware, async (req, res) => {
     const user = (req as AuthenticatedRequest).user;
-    const emails = db.getEmails(user.id);
+    const uid = user.uid || (user as any).id;
+    const firestoreEmails = await FirestoreDb.getEmails(uid).catch(() => []);
+    const emails = firestoreEmails.length > 0 ? firestoreEmails : db.getEmails(uid);
     const tasks: any[] = [];
 
     emails.forEach((e) => {
-      if (e.aiAnalysis.actionRequired) {
+      if (e.aiAnalysis?.actionRequired) {
         tasks.push({
           id: `task-${e.id}`,
           emailId: e.id,

@@ -891,6 +891,25 @@ export async function processEmailThroughIntelligencePipeline(
       whyFlaggedReasons: securityAnalysis.whyFlaggedReasons,
       scannedAt: analyzedAt,
     });
+
+    // Save extracted entities to Firestore subcollection
+    if (analysisRecord.extractedEntities && analysisRecord.extractedEntities.length > 0) {
+      for (let i = 0; i < analysisRecord.extractedEntities.length; i++) {
+        const ent = analysisRecord.extractedEntities[i];
+        const validTypes = ['person', 'organization', 'date', 'amount', 'deadline', 'location', 'tracking_number'];
+        const mappedType = validTypes.includes(ent.type) ? (ent.type as any) : 'organization';
+        await FirestoreDb.saveExtractedEntity(userId, {
+          id: `entity-${email.id}-${i}`,
+          userId,
+          emailId: email.id,
+          entityType: mappedType,
+          value: ent.value,
+          context: ent.context || ent.value,
+          confidence: 0.95,
+          createdAt: analyzedAt,
+        }).catch(() => {});
+      }
+    }
   } catch (e) {
     // Non-blocking fallback
   }
@@ -923,6 +942,11 @@ export async function processEmailThroughIntelligencePipeline(
   };
 
   db.saveEmail(userId, updatedEmail);
+  try {
+    await FirestoreDb.saveEmail(userId, updatedEmail);
+  } catch (e) {
+    // Non-blocking fallback
+  }
 
   // 9. STAGE 8: NOTIFICATION DISPATCH (if triggered)
   if (!options.skipNotifications && notificationDecision.shouldNotify) {
