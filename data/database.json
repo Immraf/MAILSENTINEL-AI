@@ -14,6 +14,13 @@
       "displayName": "Alice Engineer",
       "sessionToken": "alice-secret-token-1790104469289",
       "createdAt": "2026-09-22T19:14:29.289Z"
+    },
+    {
+      "id": "test-user-1",
+      "email": "test@example.com",
+      "displayName": "Test User",
+      "sessionToken": "test-token-1790603525560",
+      "createdAt": "2026-09-28T13:52:05.560Z"
     }
   ],
   "emailAccounts": [
@@ -2665,6 +2672,28 @@
   ],
   "auditLogs": [
     {
+      "id": "log-auth-login-1790601888740",
+      "timestamp": "2026-09-28T13:24:47.674Z",
+      "action": "LOGIN",
+      "actionType": "LOGIN",
+      "details": "Authenticated session verified for umarimran274@gmail.com",
+      "description": "Authenticated session verified for umarimran274@gmail.com",
+      "category": "user",
+      "severity": "info",
+      "userId": "vrN93nms7hWOmf6wJ4IrnRJRjRm1"
+    },
+    {
+      "id": "log-auth-login-1790599193969",
+      "timestamp": "2026-09-28T12:39:52.892Z",
+      "action": "LOGIN",
+      "actionType": "LOGIN",
+      "details": "Authenticated session verified for umarimran274@gmail.com",
+      "description": "Authenticated session verified for umarimran274@gmail.com",
+      "category": "user",
+      "severity": "info",
+      "userId": "vrN93nms7hWOmf6wJ4IrnRJRjRm1"
+    },
+    {
       "id": "log-logout-1790417432445",
       "timestamp": "2026-09-26T10:10:31.276Z",
       "action": "LOGOUT",
@@ -3033,6 +3062,34 @@
       },
       "minimumPriorityForPush": "High",
       "minimumPriorityForWhatsApp": "Critical"
+    },
+    "test-user-1": {
+      "pushEnabled": true,
+      "whatsappEnabled": true,
+      "whatsappNumber": "+1 (555) 019-2834",
+      "whatsappPhone": "+1 (555) 019-2834",
+      "webPushEnabled": true,
+      "dailyDigestEnabled": true,
+      "dailyDigestTime": "08:00",
+      "quietHoursEnabled": true,
+      "quietHoursStart": "22:00",
+      "quietHoursEnd": "07:00",
+      "quietHours": {
+        "enabled": true,
+        "start": "22:00",
+        "end": "07:00",
+        "allowCriticalSecurity": true
+      },
+      "triggers": {
+        "critical": true,
+        "high": true,
+        "threats": true,
+        "deadlines": true,
+        "quarantine": true,
+        "summary": false
+      },
+      "minimumPriorityForPush": "High",
+      "minimumPriorityForWhatsApp": "Critical"
     }
   },
   "securitySettings": {
@@ -3044,6 +3101,13 @@
       "checkLookalikeDomains": true
     },
     "user-test-alice-1790104469289": {
+      "sensitivity": "Balanced",
+      "autoQuarantinePhishing": true,
+      "blockDoubleExtensions": true,
+      "alertOnDmarcFail": true,
+      "checkLookalikeDomains": true
+    },
+    "test-user-1": {
       "sensitivity": "Balanced",
       "autoQuarantinePhishing": true,
       "blockDoubleExtensions": true,

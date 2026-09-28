@@ -93,11 +93,69 @@ export function getGoogleClientSecret(): string {
 
 /**
  * Resolves Google OAuth Redirect URI
+ * - Prefers explicit GOOGLE_REDIRECT_URI from environment
+ * - Retains safe APP_URL-derived fallback for development
+ * - Guarantees standard callback path: /api/accounts/gmail/callback
+ * - Enforces that localhost is NOT used in production
  */
 export function getGoogleRedirectUri(req?: express.Request): string {
-  if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI;
-  const appUrl = process.env.APP_URL || (req ? `${req.protocol}://${req.get('host')}` : '');
-  return appUrl ? `${appUrl.replace(/\/$/, '')}/api/accounts/gmail/callback` : '';
+  let uri = (process.env.GOOGLE_REDIRECT_URI || '').trim();
+
+  if (uri) {
+    if (!uri.endsWith('/api/accounts/gmail/callback')) {
+      uri = `${uri.replace(/\/$/, '')}/api/accounts/gmail/callback`;
+    }
+  } else {
+    // Safe APP_URL-derived fallback for development
+    const appUrl = (process.env.APP_URL || '').trim() || (req ? `${req.protocol}://${req.get('host')}` : '');
+    if (appUrl) {
+      uri = `${appUrl.replace(/\/$/, '')}/api/accounts/gmail/callback`;
+    }
+  }
+
+  // Guard against using localhost in production
+  if (process.env.NODE_ENV === 'production' && uri && (uri.includes('localhost') || uri.includes('127.0.0.1'))) {
+    return '';
+  }
+
+  return uri || '';
+}
+
+/**
+ * Resolves which Gmail OAuth server-side configuration fields are missing.
+ * Required server-side configuration:
+ * - GOOGLE_CLIENT_ID (from process.env or firebase-applet-config.json)
+ * - GOOGLE_CLIENT_SECRET (strictly from process.env)
+ * - GOOGLE_REDIRECT_URI (strictly from process.env.GOOGLE_REDIRECT_URI)
+ */
+export function getMissingGmailConfig(req?: express.Request): string[] {
+  const missing: string[] = [];
+
+  const clientId = getGoogleClientId();
+  if (!clientId || !clientId.trim()) {
+    missing.push('GOOGLE_CLIENT_ID');
+  }
+
+  const clientSecret = getGoogleClientSecret();
+  if (!clientSecret || !clientSecret.trim()) {
+    missing.push('GOOGLE_CLIENT_SECRET');
+  }
+
+  const explicitRedirect = (process.env.GOOGLE_REDIRECT_URI || '').trim();
+  if (!explicitRedirect) {
+    missing.push('GOOGLE_REDIRECT_URI');
+  } else if (process.env.NODE_ENV === 'production' && (explicitRedirect.includes('localhost') || explicitRedirect.includes('127.0.0.1'))) {
+    missing.push('GOOGLE_REDIRECT_URI');
+  }
+
+  return missing;
+}
+
+/**
+ * Returns true if all required Gmail OAuth configuration variables are present
+ */
+export function isGmailConfigured(req?: express.Request): boolean {
+  return getMissingGmailConfig(req).length === 0;
 }
 
 /**
@@ -120,8 +178,9 @@ export function getMicrosoftTenantId(): string {
  */
 oauthRouter.get('/config-status', (req, res) => {
   const clientId = getGoogleClientId();
-  const clientSecret = getGoogleClientSecret();
-  const googleConfigured = Boolean(clientId && clientSecret);
+  const redirectUri = getGoogleRedirectUri(req);
+  const gmailMissing = getMissingGmailConfig(req);
+  const googleConfigured = isGmailConfigured(req);
 
   const msClientId = getMicrosoftClientId();
   const msClientSecret = getMicrosoftClientSecret();
@@ -132,7 +191,9 @@ oauthRouter.get('/config-status', (req, res) => {
   res.json({
     gmail: {
       configured: googleConfigured,
-      clientId: clientId ? `${clientId.substring(0, 12)}...` : undefined,
+      missing: gmailMissing,
+      clientId: clientId ? `${clientId.substring(0, 16)}...` : undefined,
+      redirectUri: redirectUri || undefined,
       mode: googleConfigured ? 'production_oauth' : 'unconfigured',
       requiredVars: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'],
       scopes: ['https://www.googleapis.com/auth/gmail.readonly'],
@@ -159,10 +220,11 @@ oauthRouter.get('/config-status', (req, res) => {
 
 /**
  * Initiates Gmail OAuth 2.0 flow:
- * 1. Checks account limit in Firestore (maximum 10 accounts per user)
- * 2. Generates secure random state with CSRF protection and 10-minute TTL
- * 3. Enforces read-only minimum scope: https://www.googleapis.com/auth/gmail.readonly email profile
- * 4. Returns authorization URL
+ * 1. Validates server configuration (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI)
+ * 2. Checks account limit in Firestore (maximum 10 accounts per user)
+ * 3. Generates secure random state with CSRF protection and 10-minute TTL
+ * 4. Enforces read-only minimum scope: https://www.googleapis.com/auth/gmail.readonly email profile
+ * 5. Returns authorization URL
  */
 oauthRouter.post('/gmail/connect', authMiddleware, async (req, res) => {
   try {
@@ -171,14 +233,22 @@ oauthRouter.post('/gmail/connect', authMiddleware, async (req, res) => {
     const clientId = getGoogleClientId();
     const clientSecret = getGoogleClientSecret();
     const redirectUri = getGoogleRedirectUri(req);
+    const missing = getMissingGmailConfig(req);
 
-    if (!clientId || !clientSecret) {
+    if (missing.length > 0 || !clientId || !clientSecret || !redirectUri) {
+      const effectiveMissing = [...missing];
+      if (!clientId && !effectiveMissing.includes('GOOGLE_CLIENT_ID')) effectiveMissing.push('GOOGLE_CLIENT_ID');
+      if (!clientSecret && !effectiveMissing.includes('GOOGLE_CLIENT_SECRET')) effectiveMissing.push('GOOGLE_CLIENT_SECRET');
+      if (!redirectUri && !effectiveMissing.includes('GOOGLE_REDIRECT_URI')) effectiveMissing.push('GOOGLE_REDIRECT_URI');
+
+      const missingText = effectiveMissing.join(', ');
       return res.status(400).json({
         error: {
           code: 'GMAIL_NOT_CONFIGURED',
-          message: 'Gmail connection is not configured.',
+          message: `Gmail OAuth is not fully configured. Missing server configuration: ${missingText}.`,
         },
         configured: false,
+        missing: effectiveMissing,
       });
     }
 
@@ -244,7 +314,10 @@ oauthRouter.get('/gmail/callback', async (req, res) => {
 
   if (error) {
     console.error('Google OAuth callback error returned by provider:', error);
-    return res.redirect(`/?oauth_error=${encodeURIComponent(String(error))}`);
+    if (error === 'access_denied') {
+      return res.redirect(`/?oauth_error=access_denied&provider=gmail&message=${encodeURIComponent('Google authorization was denied by the user.')}`);
+    }
+    return res.redirect(`/?oauth_error=${encodeURIComponent(String(error))}&provider=gmail`);
   }
 
   if (!code || !state) {
@@ -279,8 +352,10 @@ oauthRouter.get('/gmail/callback', async (req, res) => {
     // Verify real Google OAuth credentials are configured
     if (!clientSecret || !clientId) {
       console.error('Gmail OAuth exchange attempted but credentials are not configured');
+      const missing = getMissingGmailConfig(req);
+      const missingText = missing.join(', ') || 'GOOGLE_CLIENT_SECRET';
       return res.redirect(
-        `/?oauth_error=gmail_not_configured&message=${encodeURIComponent('Gmail connection is not configured.')}`
+        `/?oauth_error=config_missing&provider=gmail&message=${encodeURIComponent(`Gmail OAuth is not fully configured. Missing server configuration: ${missingText}.`)}`
       );
     }
 

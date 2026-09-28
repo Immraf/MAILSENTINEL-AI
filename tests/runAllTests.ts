@@ -17,6 +17,11 @@ import path from 'path';
 import { db, UserRecord, loadDatabase } from '../server/db';
 import {
   checkAndConsumeAuthCode,
+  getGoogleClientId,
+  getGoogleClientSecret,
+  getGoogleRedirectUri,
+  getMissingGmailConfig,
+  isGmailConfigured,
 } from '../server/oauth';
 import { encryptToken, decryptToken, getMasterKey, clearMasterKeyCache, CredentialDecryptionError, setMasterKeyForTesting, isEncrypted } from '../server/encryption';
 import { isInQuietHours, evaluateAndDispatchNotification } from '../server/notifications';
@@ -484,6 +489,92 @@ async function testOAuthAndEncryption() {
       assert(e.message.includes('Duplicate account rejected'), 'Must specify duplicate rejection');
     }
     assert(duplicateRejected, 'Connecting identical active email must fail');
+  });
+
+  // --- Gmail OAuth Configuration Detection & Validation Tests ---
+  await runTest('OAUTH', 'Google Client ID fallback to firebase-applet-config.json preserves client ID', () => {
+    const origEnv = process.env.GOOGLE_CLIENT_ID;
+    delete process.env.GOOGLE_CLIENT_ID;
+    const clientId = getGoogleClientId();
+    assert(Boolean(clientId), 'Client ID must be resolved from firebase-applet-config.json');
+    assert(clientId.includes('apps.googleusercontent.com'), 'Client ID must match expected Google OAuth client ID format');
+    
+    // Explicit environment variable takes precedence
+    process.env.GOOGLE_CLIENT_ID = 'test-explicit-client-id.apps.googleusercontent.com';
+    assert(getGoogleClientId() === 'test-explicit-client-id.apps.googleusercontent.com', 'process.env.GOOGLE_CLIENT_ID must take precedence');
+    if (origEnv !== undefined) process.env.GOOGLE_CLIENT_ID = origEnv;
+    else delete process.env.GOOGLE_CLIENT_ID;
+  });
+
+  await runTest('OAUTH', 'Google Client Secret is resolved strictly from process.env and NEVER frontend config', () => {
+    const origSecret = process.env.GOOGLE_CLIENT_SECRET;
+    delete process.env.GOOGLE_CLIENT_SECRET;
+    assert(getGoogleClientSecret() === '', 'Client secret must be empty string when process.env.GOOGLE_CLIENT_SECRET is missing');
+
+    process.env.GOOGLE_CLIENT_SECRET = 'GOCSPX-test-secure-secret-key-12345';
+    assert(getGoogleClientSecret() === 'GOCSPX-test-secure-secret-key-12345', 'Client secret must match process.env');
+    if (origSecret !== undefined) process.env.GOOGLE_CLIENT_SECRET = origSecret;
+    else delete process.env.GOOGLE_CLIENT_SECRET;
+  });
+
+  await runTest('OAUTH', 'Google Redirect URI normalizes path, respects GOOGLE_REDIRECT_URI, and forbids localhost in production', () => {
+    const origUri = process.env.GOOGLE_REDIRECT_URI;
+    const origAppUrl = process.env.APP_URL;
+    const origNodeEnv = process.env.NODE_ENV;
+
+    // 1. Explicit GOOGLE_REDIRECT_URI preferred
+    process.env.GOOGLE_REDIRECT_URI = 'https://mailsentinel.ai/api/accounts/gmail/callback';
+    assert(getGoogleRedirectUri() === 'https://mailsentinel.ai/api/accounts/gmail/callback', 'Must use explicit GOOGLE_REDIRECT_URI');
+
+    // 2. Normalizes path to end with /api/accounts/gmail/callback
+    process.env.GOOGLE_REDIRECT_URI = 'https://mailsentinel.ai';
+    assert(getGoogleRedirectUri() === 'https://mailsentinel.ai/api/accounts/gmail/callback', 'Must append /api/accounts/gmail/callback');
+
+    // 3. Fallback to APP_URL in development
+    delete process.env.GOOGLE_REDIRECT_URI;
+    process.env.NODE_ENV = 'development';
+    process.env.APP_URL = 'https://dev.mailsentinel.ai';
+    assert(getGoogleRedirectUri() === 'https://dev.mailsentinel.ai/api/accounts/gmail/callback', 'Must fall back to APP_URL in development');
+
+    // 4. Forbids localhost in production
+    process.env.NODE_ENV = 'production';
+    process.env.GOOGLE_REDIRECT_URI = 'http://localhost:3000/api/accounts/gmail/callback';
+    assert(getGoogleRedirectUri() === '', 'Must reject localhost redirect URI in production');
+
+    // Restore env
+    if (origUri !== undefined) process.env.GOOGLE_REDIRECT_URI = origUri;
+    else delete process.env.GOOGLE_REDIRECT_URI;
+    if (origAppUrl !== undefined) process.env.APP_URL = origAppUrl;
+    else delete process.env.APP_URL;
+    if (origNodeEnv !== undefined) process.env.NODE_ENV = origNodeEnv;
+    else delete process.env.NODE_ENV;
+  });
+
+  await runTest('OAUTH', 'getMissingGmailConfig reports missing configuration variables safely without leaking secrets', () => {
+    const origSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const origRedirect = process.env.GOOGLE_REDIRECT_URI;
+
+    delete process.env.GOOGLE_CLIENT_SECRET;
+    delete process.env.GOOGLE_REDIRECT_URI;
+
+    const missing = getMissingGmailConfig();
+    assert(missing.includes('GOOGLE_CLIENT_SECRET'), 'Must flag GOOGLE_CLIENT_SECRET as missing');
+    assert(missing.includes('GOOGLE_REDIRECT_URI'), 'Must flag GOOGLE_REDIRECT_URI as missing');
+    assert(isGmailConfigured() === false, 'isGmailConfigured must return false when variables are missing');
+
+    // Fully configured scenario
+    process.env.GOOGLE_CLIENT_SECRET = 'GOCSPX-valid-secret';
+    process.env.GOOGLE_REDIRECT_URI = 'https://mailsentinel.ai/api/accounts/gmail/callback';
+
+    const fullyConfiguredMissing = getMissingGmailConfig();
+    assert(fullyConfiguredMissing.length === 0, 'Missing list must be empty when fully configured');
+    assert(isGmailConfigured() === true, 'isGmailConfigured must return true when fully configured');
+
+    // Restore env
+    if (origSecret !== undefined) process.env.GOOGLE_CLIENT_SECRET = origSecret;
+    else delete process.env.GOOGLE_CLIENT_SECRET;
+    if (origRedirect !== undefined) process.env.GOOGLE_REDIRECT_URI = origRedirect;
+    else delete process.env.GOOGLE_REDIRECT_URI;
   });
 }
 

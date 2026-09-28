@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   MailCheck,
   Plus,
@@ -64,6 +64,71 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const [oauthStatusMsg, setOauthStatusMsg] = useState<{ type: 'info' | 'error' | 'success'; text: string } | null>(null);
   const [accountStatusOverrides, setAccountStatusOverrides] = useState<Record<string, string>>({});
 
+  // Check URL parameters for OAuth redirect callbacks or errors & listen for popup postMessage
+  useEffect(() => {
+    // 1. Check for URL search params (e.g. redirected with oauth_error or oauth_success)
+    const params = new URLSearchParams(window.location.search);
+    const oauthError = params.get('oauth_error');
+    const oauthMsg = params.get('message');
+    const oauthSuccess = params.get('oauth_success');
+    const accountEmail = params.get('email');
+
+    if (oauthError) {
+      let categorizedMsg = '';
+      if (oauthError === 'access_denied') {
+        categorizedMsg = 'Authorization denied: Access permissions were cancelled or denied during Google authorization.';
+      } else if (['invalid_state', 'invalid_callback', 'replay_detected', 'csrf_failure'].includes(oauthError)) {
+        categorizedMsg = 'Callback error: Invalid OAuth state parameter or expired authorization code. Please retry.';
+      } else if (['gmail_not_configured', 'config_missing'].includes(oauthError)) {
+        categorizedMsg = oauthMsg
+          ? oauthMsg
+          : 'Gmail connection is not fully configured. The server is missing: GOOGLE_CLIENT_SECRET.';
+      } else if (['unauthorized', 'auth_required'].includes(oauthError)) {
+        categorizedMsg = 'Authentication error: You must be logged into MailSentinel to connect a mailbox.';
+      } else if (['token_exchange_failed', 'profile_fetch_failed', 'missing_access_token'].includes(oauthError)) {
+        categorizedMsg = 'OAuth provider error: Google authorization service failed during token exchange. Please try again.';
+      } else if (oauthError === 'duplicate_account') {
+        categorizedMsg = `Account error: Mailbox ${accountEmail || ''} is already connected to your account.`;
+      } else if (oauthError === 'account_limit_reached') {
+        categorizedMsg = 'Account limit reached: Maximum 10 connected accounts permitted.';
+      } else {
+        categorizedMsg = oauthMsg || `OAuth provider error: ${oauthError}`;
+      }
+
+      setOauthStatusMsg({
+        type: 'error',
+        text: categorizedMsg,
+      });
+
+      // Clear query params from browser URL bar without reloading
+      try {
+        const cleanUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+      } catch {}
+    } else if (oauthSuccess) {
+      setOauthStatusMsg({
+        type: 'success',
+        text: `Successfully linked ${oauthSuccess.toUpperCase()} account${accountEmail ? ` (${accountEmail})` : ''} to MailSentinel.`,
+      });
+      try {
+        const cleanUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+      } catch {}
+    }
+
+    // 2. Listen for postMessage from OAuth popup window
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
+        setOauthStatusMsg({
+          type: 'success',
+          text: `Successfully linked ${event.data.provider === 'gmail' ? 'Google Gmail' : 'Microsoft Outlook'} account (${event.data.email})!`,
+        });
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
   // Simulator state
   const [simAccount, setSimAccount] = useState<string>(accounts[0]?.id || '');
   const [simSender, setSimSender] = useState('billing@micros0ft-support.com');
@@ -120,10 +185,23 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
       const data = await res.json();
 
       if (!res.ok) {
-        const errorMsg =
-          data.error?.message ||
-          data.message ||
-          (provider === 'gmail' && !data.configured ? 'Gmail connection is not configured.' : `Failed to initiate OAuth flow for ${provider}.`);
+        let errorMsg = '';
+        if (data.error?.code === 'GMAIL_NOT_CONFIGURED' || (!data.configured && provider === 'gmail')) {
+          const missingVars =
+            data.missing && Array.isArray(data.missing) && data.missing.length > 0
+              ? data.missing.join(', ')
+              : 'GOOGLE_CLIENT_SECRET';
+          errorMsg = `Gmail connection is not fully configured. The server is missing: ${missingVars}.`;
+        } else if (res.status === 401 || data.error?.code === 'UNAUTHORIZED') {
+          errorMsg = 'Authentication error: You must be signed in to MailSentinel to connect a mailbox.';
+        } else if (data.error?.code === 'ACCOUNT_LIMIT_REACHED') {
+          errorMsg = 'Account limit reached: Maximum 10 connected accounts permitted across Gmail and Outlook.';
+        } else if (data.error?.code === 'DUPLICATE_ACCOUNT') {
+          errorMsg = 'This email account is already connected to your MailSentinel profile.';
+        } else {
+          errorMsg = data.error?.message || data.message || `OAuth provider error: Failed to initiate OAuth flow for ${provider}.`;
+        }
+
         setOauthStatusMsg({
           type: 'error',
           text: errorMsg,
