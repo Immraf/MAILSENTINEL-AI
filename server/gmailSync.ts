@@ -16,6 +16,7 @@
 import { FirestoreDb } from './firestoreDb';
 import { decryptToken, encryptToken, CredentialDecryptionError } from './encryption';
 import { sanitizeEmailHtml } from './htmlSanitizer';
+import { getGoogleClientId, getGoogleClientSecret } from './oauth';
 import {
   NormalizedEmail,
   EmailThread,
@@ -219,8 +220,8 @@ export async function getValidGmailAccessToken(
   }
 
   // Refresh token using Google OAuth 2.0 token endpoint
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const clientId = getGoogleClientId();
+  const clientSecret = getGoogleClientSecret();
 
   if (!clientId || !clientSecret) {
     // Missing OAuth configuration

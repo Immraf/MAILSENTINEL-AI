@@ -11,6 +11,7 @@
  * - Error Handling, Rate Limiting & Zero-HTML Contract
  */
 
+import 'dotenv/config';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -511,6 +512,16 @@ async function testOAuthAndEncryption() {
     delete process.env.GOOGLE_CLIENT_SECRET;
     assert(getGoogleClientSecret() === '', 'Client secret must be empty string when process.env.GOOGLE_CLIENT_SECRET is missing');
 
+    // Empty string must be treated as missing
+    process.env.GOOGLE_CLIENT_SECRET = '';
+    assert(getGoogleClientSecret() === '', 'Empty string must be treated as empty');
+    assert(getMissingGmailConfig().includes('GOOGLE_CLIENT_SECRET'), 'Empty string must flag GOOGLE_CLIENT_SECRET as missing');
+
+    // Whitespace string must be treated as missing
+    process.env.GOOGLE_CLIENT_SECRET = '   ';
+    assert(getMissingGmailConfig().includes('GOOGLE_CLIENT_SECRET'), 'Whitespace-only secret must flag GOOGLE_CLIENT_SECRET as missing');
+
+    // Real secret configured in process.env
     process.env.GOOGLE_CLIENT_SECRET = 'GOCSPX-test-secure-secret-key-12345';
     assert(getGoogleClientSecret() === 'GOCSPX-test-secure-secret-key-12345', 'Client secret must match process.env');
     if (origSecret !== undefined) process.env.GOOGLE_CLIENT_SECRET = origSecret;
@@ -553,16 +564,32 @@ async function testOAuthAndEncryption() {
   await runTest('OAUTH', 'getMissingGmailConfig reports missing configuration variables safely without leaking secrets', () => {
     const origSecret = process.env.GOOGLE_CLIENT_SECRET;
     const origRedirect = process.env.GOOGLE_REDIRECT_URI;
+    const origAppUrl = process.env.APP_URL;
+    const origNodeEnv = process.env.NODE_ENV;
 
+    // 1. Production scenario: explicit GOOGLE_REDIRECT_URI is required
+    process.env.NODE_ENV = 'production';
     delete process.env.GOOGLE_CLIENT_SECRET;
     delete process.env.GOOGLE_REDIRECT_URI;
 
-    const missing = getMissingGmailConfig();
-    assert(missing.includes('GOOGLE_CLIENT_SECRET'), 'Must flag GOOGLE_CLIENT_SECRET as missing');
-    assert(missing.includes('GOOGLE_REDIRECT_URI'), 'Must flag GOOGLE_REDIRECT_URI as missing');
-    assert(isGmailConfigured() === false, 'isGmailConfigured must return false when variables are missing');
+    const missingProd = getMissingGmailConfig();
+    assert(missingProd.includes('GOOGLE_CLIENT_SECRET'), 'Must flag GOOGLE_CLIENT_SECRET as missing in production');
+    assert(missingProd.includes('GOOGLE_REDIRECT_URI'), 'Must flag GOOGLE_REDIRECT_URI as missing in production');
+    assert(isGmailConfigured() === false, 'isGmailConfigured must return false when variables are missing in production');
 
-    // Fully configured scenario
+    // 2. Development scenario: safe development fallback handles redirect URI
+    process.env.NODE_ENV = 'development';
+    process.env.APP_URL = 'https://dev.mailsentinel.ai';
+    delete process.env.GOOGLE_CLIENT_SECRET;
+    delete process.env.GOOGLE_REDIRECT_URI;
+
+    const missingDev = getMissingGmailConfig();
+    assert(missingDev.includes('GOOGLE_CLIENT_SECRET'), 'Must flag GOOGLE_CLIENT_SECRET as missing in development');
+    assert(!missingDev.includes('GOOGLE_REDIRECT_URI'), 'Must NOT flag GOOGLE_REDIRECT_URI as missing in development when safe fallback is available');
+    assert(isGmailConfigured() === false, 'isGmailConfigured must return false when secret is missing');
+
+    // 3. Fully configured scenario
+    process.env.NODE_ENV = 'production';
     process.env.GOOGLE_CLIENT_SECRET = 'GOCSPX-valid-secret';
     process.env.GOOGLE_REDIRECT_URI = 'https://mailsentinel.ai/api/accounts/gmail/callback';
 
@@ -575,6 +602,10 @@ async function testOAuthAndEncryption() {
     else delete process.env.GOOGLE_CLIENT_SECRET;
     if (origRedirect !== undefined) process.env.GOOGLE_REDIRECT_URI = origRedirect;
     else delete process.env.GOOGLE_REDIRECT_URI;
+    if (origAppUrl !== undefined) process.env.APP_URL = origAppUrl;
+    else delete process.env.APP_URL;
+    if (origNodeEnv !== undefined) process.env.NODE_ENV = origNodeEnv;
+    else delete process.env.NODE_ENV;
   });
 }
 

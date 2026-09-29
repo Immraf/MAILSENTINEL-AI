@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import crypto from 'crypto';
 import express from 'express';
 import fs from 'fs';
@@ -93,12 +94,14 @@ export function getGoogleClientSecret(): string {
 
 /**
  * Resolves Google OAuth Redirect URI
- * - Prefers explicit GOOGLE_REDIRECT_URI from environment
- * - Retains safe APP_URL-derived fallback for development
+ * - Prefers explicit GOOGLE_REDIRECT_URI from environment as authoritative production configuration
+ * - Retains safe APP_URL / request-derived fallback for development
  * - Guarantees standard callback path: /api/accounts/gmail/callback
- * - Enforces that localhost is NOT used in production
+ * - Enforces that localhost is strictly forbidden in production
+ * - In production, missing GOOGLE_REDIRECT_URI produces empty string (never guess localhost in production)
  */
 export function getGoogleRedirectUri(req?: express.Request): string {
+  const isProduction = process.env.NODE_ENV === 'production';
   let uri = (process.env.GOOGLE_REDIRECT_URI || '').trim();
 
   if (uri) {
@@ -106,15 +109,19 @@ export function getGoogleRedirectUri(req?: express.Request): string {
       uri = `${uri.replace(/\/$/, '')}/api/accounts/gmail/callback`;
     }
   } else {
-    // Safe APP_URL-derived fallback for development
-    const appUrl = (process.env.APP_URL || '').trim() || (req ? `${req.protocol}://${req.get('host')}` : '');
+    // Production requires explicit GOOGLE_REDIRECT_URI; do not generate fallback in production
+    if (isProduction) {
+      return '';
+    }
+    // Safe APP_URL or server host fallback preserved ONLY for development
+    const appUrl = (process.env.APP_URL || '').trim() || (req ? `${req.protocol}://${req.get('host')}` : '') || `http://localhost:${process.env.PORT || 3000}`;
     if (appUrl) {
       uri = `${appUrl.replace(/\/$/, '')}/api/accounts/gmail/callback`;
     }
   }
 
   // Guard against using localhost in production
-  if (process.env.NODE_ENV === 'production' && uri && (uri.includes('localhost') || uri.includes('127.0.0.1'))) {
+  if (isProduction && uri && (uri.includes('localhost') || uri.includes('127.0.0.1'))) {
     return '';
   }
 
@@ -123,10 +130,11 @@ export function getGoogleRedirectUri(req?: express.Request): string {
 
 /**
  * Resolves which Gmail OAuth server-side configuration fields are missing.
- * Required server-side configuration:
  * - GOOGLE_CLIENT_ID (from process.env or firebase-applet-config.json)
  * - GOOGLE_CLIENT_SECRET (strictly from process.env)
- * - GOOGLE_REDIRECT_URI (strictly from process.env.GOOGLE_REDIRECT_URI)
+ * - GOOGLE_REDIRECT_URI:
+ *     * Production: Requires explicit GOOGLE_REDIRECT_URI (non-localhost)
+ *     * Development: Explicit GOOGLE_REDIRECT_URI is preferred, otherwise safe server fallback is accepted
  */
 export function getMissingGmailConfig(req?: express.Request): string[] {
   const missing: string[] = [];
@@ -141,11 +149,20 @@ export function getMissingGmailConfig(req?: express.Request): string[] {
     missing.push('GOOGLE_CLIENT_SECRET');
   }
 
+  const isProduction = process.env.NODE_ENV === 'production';
   const explicitRedirect = (process.env.GOOGLE_REDIRECT_URI || '').trim();
-  if (!explicitRedirect) {
-    missing.push('GOOGLE_REDIRECT_URI');
-  } else if (process.env.NODE_ENV === 'production' && (explicitRedirect.includes('localhost') || explicitRedirect.includes('127.0.0.1'))) {
-    missing.push('GOOGLE_REDIRECT_URI');
+
+  if (isProduction) {
+    // In production: explicit GOOGLE_REDIRECT_URI is required and cannot be localhost
+    if (!explicitRedirect || explicitRedirect.includes('localhost') || explicitRedirect.includes('127.0.0.1')) {
+      missing.push('GOOGLE_REDIRECT_URI');
+    }
+  } else {
+    // In development: explicit GOOGLE_REDIRECT_URI preferred, or safe development fallback must resolve
+    const resolvedRedirect = getGoogleRedirectUri(req);
+    if (!resolvedRedirect) {
+      missing.push('GOOGLE_REDIRECT_URI');
+    }
   }
 
   return missing;
