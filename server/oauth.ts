@@ -87,9 +87,18 @@ export function getGoogleClientId(): string {
 
 /**
  * Resolves Google OAuth Client Secret strictly from process.env
+ * Trims any leading/trailing whitespace and treats empty strings as unconfigured.
  */
 export function getGoogleClientSecret(): string {
-  return process.env.GOOGLE_CLIENT_SECRET || '';
+  return (process.env.GOOGLE_CLIENT_SECRET || '').trim();
+}
+
+/**
+ * Server-side diagnostic helper to determine whether GOOGLE_CLIENT_SECRET exists
+ * without exposing its secret value.
+ */
+export function hasGoogleClientSecret(): boolean {
+  return Boolean(process.env.GOOGLE_CLIENT_SECRET?.trim());
 }
 
 /**
@@ -193,7 +202,7 @@ export function getMicrosoftTenantId(): string {
 /**
  * Returns OAuth readiness status for providers
  */
-oauthRouter.get('/config-status', (req, res) => {
+oauthRouter.get(['/config-status', '/gmail/config-status'], (req, res) => {
   const clientId = getGoogleClientId();
   const redirectUri = getGoogleRedirectUri(req);
   const gmailMissing = getMissingGmailConfig(req);
@@ -205,7 +214,11 @@ oauthRouter.get('/config-status', (req, res) => {
   const microsoftConfigured = Boolean(msClientId && msClientSecret);
   const whatsappConfigured = Boolean(process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_ACCESS_TOKEN);
 
+  const isDev = process.env.NODE_ENV !== 'production';
+
   res.json({
+    configured: googleConfigured,
+    missing: gmailMissing,
     gmail: {
       configured: googleConfigured,
       missing: gmailMissing,
@@ -214,6 +227,7 @@ oauthRouter.get('/config-status', (req, res) => {
       mode: googleConfigured ? 'production_oauth' : 'unconfigured',
       requiredVars: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'],
       scopes: ['https://www.googleapis.com/auth/gmail.readonly'],
+      ...(isDev ? { diagnostic: { hasGoogleClientSecret: hasGoogleClientSecret() } } : {}),
     },
     outlook: {
       configured: microsoftConfigured,
